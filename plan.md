@@ -516,7 +516,7 @@ curl -s "http://127.0.0.1:8000/api/jobs/<ID>"
 # 幾秒後應為 {"status":"finished","result":{"item_id":123,"text":"OK"}}
 
 
-### 4. Docker Compose (Docker問題之後解決)
+### 4. Docker Compose
 
 ```bash
 docker compose up -d  # 啟動 api、web、redis、worker
@@ -528,7 +528,7 @@ docker compose up -d  # 啟動 api、web、redis、worker
 * 先確保功能可運行，再進行 UI 與效能優化。
 
 
-======== 目前完成到這裡，docker問題之後解決 ===========
+======== 目前完成到這裡 ===========
 
 ---
 
