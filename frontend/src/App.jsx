@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import LoginPage from './pages/Login.jsx'
 import RecordsPage from './pages/Records.jsx'
 import RecordItemPage from './pages/RecordItem.jsx'
+import WorkspaceSelector from './components/WorkspaceSelector.jsx'
+import { api } from './lib/api.js'
 import './App.css'
 
 const routes = [
@@ -14,7 +16,7 @@ const routes = [
   },
 ]
 
-const defaultRoute = '/login'
+const defaultRoute = '/records'
 
 function matchRoute(pathname) {
   for (const route of routes) {
@@ -117,22 +119,121 @@ const navLinks = [
 function App() {
   const [route, navigate] = useRouter()
   const CurrentPage = route?.component ?? LoginPage
+  const [workspaceState, setWorkspaceState] = useState({
+    loading: true,
+    options: [],
+    current: null,
+    error: null,
+  })
+  const [workspaceBusy, setWorkspaceBusy] = useState(false)
+
+  const loadWorkspaces = useCallback(async () => {
+    setWorkspaceState((prev) => ({
+      ...prev,
+      loading: true,
+      error: null,
+    }))
+    try {
+      const [optionsData, currentData] = await Promise.all([
+        api.getWorkspaces(),
+        api.getCurrentWorkspace(),
+      ])
+      setWorkspaceState({
+        loading: false,
+        options: optionsData.workspaces ?? [],
+        current: currentData.workspace ?? null,
+        error: null,
+      })
+    } catch (error) {
+      setWorkspaceState((prev) => ({
+        ...prev,
+        loading: false,
+        error: error.message ?? 'Unable to load workspaces.',
+      }))
+    }
+  }, [])
+
+  useEffect(() => {
+    loadWorkspaces()
+  }, [loadWorkspaces])
+
+  const handleSelectWorkspace = useCallback(
+    async (slug) => {
+      if (!slug) {
+        return
+      }
+      setWorkspaceBusy(true)
+      try {
+        const payload = await api.openWorkspace(slug)
+        const workspacePayload = payload.workspace
+        setWorkspaceState((prev) => ({
+          ...prev,
+          current: workspacePayload ?? prev.current,
+          options: (() => {
+            if (!workspacePayload) {
+              return prev.options
+            }
+            const exists = prev.options.some((option) => option.slug === slug)
+            if (exists) {
+              return prev.options.map((option) =>
+                option.slug === slug ? workspacePayload : option,
+              )
+            }
+            return [...prev.options, workspacePayload]
+          })(),
+          error: null,
+        }))
+        if (route?.name !== 'records') {
+          navigate('/records')
+        }
+      } catch (error) {
+        setWorkspaceState((prev) => ({
+          ...prev,
+          error: error.message ?? 'Unable to open workspace.',
+        }))
+      } finally {
+        setWorkspaceBusy(false)
+      }
+    },
+    [navigate, route?.name],
+  )
+
+  const handleRefreshWorkspaces = useCallback(() => {
+    loadWorkspaces()
+  }, [loadWorkspaces])
+
+  const navActivePath = useMemo(() => {
+    if (route?.name === 'login') {
+      return '/login'
+    }
+    return '/records'
+  }, [route?.name])
 
   return (
     <div className="app">
       <header className="header">
         <div>
           <h1>NCCU OCR Annotation</h1>
-          <p className="tagline">Milestone 0 — Environment and scaffolding</p>
+          <p className="tagline">
+            Milestone 1 — Workspace &amp; page listing (read-only)
+          </p>
         </div>
         <HealthIndicator />
       </header>
+      <WorkspaceSelector
+        workspaces={workspaceState.options}
+        current={workspaceState.current}
+        loading={workspaceState.loading || workspaceBusy}
+        error={workspaceState.error}
+        onSelect={handleSelectWorkspace}
+        onRefresh={handleRefreshWorkspaces}
+      />
       <nav className="nav">
         {navLinks.map((link) => (
           <button
             key={link.to}
             type="button"
-            className={link.to === window.location.pathname ? 'active' : ''}
+            className={link.to === navActivePath ? 'active' : ''}
             onClick={() => navigate(link.to)}
           >
             {link.label}
@@ -140,7 +241,13 @@ function App() {
         ))}
       </nav>
       <main className="main">
-        <CurrentPage params={route?.params ?? {}} onNavigate={navigate} />
+        <CurrentPage
+          params={route?.params ?? {}}
+          onNavigate={navigate}
+          workspaceState={workspaceState}
+          onSelectWorkspace={handleSelectWorkspace}
+          onRefreshWorkspaces={handleRefreshWorkspaces}
+        />
       </main>
     </div>
   )

@@ -12,7 +12,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # === 安全 / 偵錯（開發期） ===
 SECRET_KEY = 'django-insecure-*_w*p_8u)xnbqgq-+ui-z2-k8#ayk)icr=gz26#0akb_sto9u4'  # TODO: 正式環境改用環境變數
 DEBUG = True
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "0.0.0.0"]  # ← 允許本機與 runserver 綁 0.0.0.0
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "0.0.0.0", "api"]  # ← 允許本機與 runserver 綁 0.0.0.0，加入 'api' 供 Docker 內部使用
 
 # === 應用程式 ===
 INSTALLED_APPS = [
@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'corsheaders',            # ← 新增
 
     # 你建立的 Apps
+    'records',                # ← 新增
     'accounts',               # ← 新增
     'annotations',            # ← 新增
     'ocr_service',            # ← 新增
@@ -104,3 +105,7 @@ REST_FRAMEWORK = {
 
 # === Redis 連線（給 RQ 用；沒設環境變數時預設本機） ===
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+
+# === Workspace 設定（M1） ===
+WORKSPACES_ROOT = Path(os.getenv("WORKSPACES_ROOT", BASE_DIR.parent / "workspace_samples"))
+WORKSPACE_STATE_FILE = Path(os.getenv("WORKSPACE_STATE_FILE", BASE_DIR / ".runtime" / "workspace_state.json"))

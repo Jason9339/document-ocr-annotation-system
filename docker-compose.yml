@@ -8,8 +8,10 @@ services:
              python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./backend:/app
+      - ./workspace_samples:/workspace_samples
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - WORKSPACES_ROOT=/workspace_samples
     ports:
       - "8000:8000"
     depends_on:
@@ -46,8 +48,10 @@ services:
     command: rq worker --url redis://redis:6379/0 default
     volumes:
       - ./backend:/app
+      - ./workspace_samples:/workspace_samples
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - WORKSPACES_ROOT=/workspace_samples
     depends_on:
       - redis
 

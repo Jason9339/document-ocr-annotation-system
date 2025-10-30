@@ -25,6 +25,9 @@ frontend/dist/
 # Logs
 *.log
 
+# Runtime state
+.runtime/
+
 # IDE / OS clutter
 .DS_Store
 Thumbs.db

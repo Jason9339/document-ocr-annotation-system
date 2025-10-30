@@ -17,6 +17,14 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from annotations.views import health, enqueue_test, job_status
+from records.views import (
+    available_workspaces,
+    current_workspace,
+    item_original,
+    item_thumbnail,
+    list_items_view,
+    open_workspace,
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -27,4 +35,12 @@ urlpatterns = [
     # RQ 測試端點
     path('api/jobs/test', enqueue_test),
     path('api/jobs/<str:jid>', job_status),
+
+    # Workspace / Items
+    path('api/v1/workspaces', available_workspaces),
+    path('api/v1/workspace', current_workspace),
+    path('api/v1/workspace/open', open_workspace),
+    path('api/v1/items', list_items_view),
+    path('api/v1/items/thumbnail', item_thumbnail),
+    path('api/v1/items/raw', item_original),
 ]
