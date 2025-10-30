@@ -4,18 +4,20 @@ import json
 from pathlib import PurePosixPath
 from typing import Dict, Optional
 
-from django.conf import settings
 from django.http import FileResponse, Http404, HttpResponseBadRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from urllib.parse import quote
 
 from .services import (
+    RecordError,
     WorkspaceError,
+    create_record_from_upload,
     filter_items,
     get_active_workspace,
-    get_workspace,
+    get_record,
     iter_items,
+    list_records,
     list_workspaces,
     paginate_items,
     set_active_workspace,
@@ -42,6 +44,10 @@ def _workspace_payload(workspace) -> Dict:
         "records": record_count,
         "pages": page_count,
     }
+
+
+def _record_payload(record) -> Dict:
+    return record.to_dict()
 
 
 def _active_workspace_or_400():
@@ -87,6 +93,38 @@ def open_workspace(request):
     return JsonResponse({"ok": True, "workspace": _workspace_payload(workspace)})
 
 
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def records_root(request):
+    try:
+        workspace = _active_workspace_or_400()
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    if request.method == "GET":
+        records = [_record_payload(record) for record in list_records(workspace)]
+        return JsonResponse({"ok": True, "records": records})
+
+    upload_file = request.FILES.get("file")
+    if upload_file is None:
+        return HttpResponseBadRequest("Missing 'file' upload.")
+
+    slug = request.POST.get("slug") or request.POST.get("name")
+    title = request.POST.get("title")
+
+    try:
+        record = create_record_from_upload(
+            workspace,
+            upload_file=upload_file,
+            slug=slug,
+            title=title,
+        )
+    except RecordError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    return JsonResponse({"ok": True, "record": _record_payload(record)}, status=201)
+
+
 def _item_payload(workspace, item):
     rel_path = item.rel_path.as_posix()
     thumbnail_url = f"/api/v1/items/thumbnail?path={quote(rel_path, safe='')}"
@@ -108,6 +146,8 @@ def list_items_view(request):
     except WorkspaceError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
+    record_filter = request.GET.get("record")
+
     try:
         page = int(request.GET.get("page", "1"))
     except ValueError:
@@ -123,8 +163,12 @@ def list_items_view(request):
 
     query = request.GET.get("q")
     sort = request.GET.get("sort")
+    try:
+        items_iter = iter_items(workspace, record_slug=record_filter)
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=404)
 
-    items = filter_items(iter_items(workspace), query=query, sort=sort)
+    items = filter_items(items_iter, query=query, sort=sort)
     total_count = len(items)
     paginated = paginate_items(items, page=page, page_size=page_size)
 
@@ -196,3 +240,27 @@ def item_original(request):
         content_type = "image/tiff"
 
     return FileResponse(source.open("rb"), content_type=content_type)
+
+
+@require_GET
+def record_detail_view(request, record_slug: str):
+    try:
+        workspace = _active_workspace_or_400()
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    try:
+        record = get_record(workspace, record_slug)
+    except RecordError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+
+    try:
+        items_iter = iter_items(workspace, record_slug=record_slug)
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+
+    pages = [_item_payload(workspace, item) for item in items_iter]
+    record_payload = _record_payload(record)
+    record_payload["pages"] = pages
+    record_payload["page_count"] = len(pages)
+    return JsonResponse({"ok": True, "record": record_payload})

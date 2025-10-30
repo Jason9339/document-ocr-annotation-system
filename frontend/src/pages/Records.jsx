@@ -1,7 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api.js'
 
-const PAGE_SIZE = 12
+function formatDate(value) {
+  if (!value) {
+    return '未提供'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return date.toLocaleString()
+}
 
 export default function RecordsPage({
   workspaceState,
@@ -11,84 +20,53 @@ export default function RecordsPage({
 }) {
   const activeWorkspace = workspaceState.current
   const activeWorkspaceSlug = activeWorkspace?.slug
-  const [items, setItems] = useState([])
-  const [error, setError] = useState(null)
+  const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(false)
-  const [pagination, setPagination] = useState({
-    page: 1,
-    page_size: PAGE_SIZE,
-    total: 0,
-  })
+  const [error, setError] = useState(null)
+  const [refreshIndex, setRefreshIndex] = useState(0)
 
-  const [page, setPage] = useState(1)
-  const [sort, setSort] = useState('record')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [query, setQuery] = useState('')
-
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      setQuery(searchTerm.trim())
-    }, 350)
-
-    return () => clearTimeout(handle)
-  }, [searchTerm])
-
-  useEffect(() => {
-    setPage(1)
-  }, [query, sort, activeWorkspaceSlug])
+  const fileInputRef = useRef(null)
+  const [uploadFile, setUploadFile] = useState(null)
+  const [uploadSlug, setUploadSlug] = useState('')
+  const [uploadTitle, setUploadTitle] = useState('')
+  const [uploadError, setUploadError] = useState(null)
+  const [uploadBusy, setUploadBusy] = useState(false)
 
   useEffect(() => {
     if (!activeWorkspaceSlug) {
-      setItems([])
-      setPagination({ page: 1, page_size: PAGE_SIZE, total: 0 })
+      setRecords([])
       return
     }
 
-    const controller = new AbortController()
+    let cancelled = false
     setLoading(true)
     setError(null)
+
     api
-      .getItems({
-        page,
-        pageSize: PAGE_SIZE,
-        query,
-        sort,
-        signal: controller.signal,
-      })
+      .getRecords()
       .then((payload) => {
-        setItems(payload.items ?? [])
-        const paginationPayload = payload.pagination ?? {}
-        setPagination({
-          page: paginationPayload.page ?? page,
-          page_size: paginationPayload.page_size ?? PAGE_SIZE,
-          total:
-            paginationPayload.total ?? (payload.items ? payload.items.length : 0),
-        })
-      })
-      .catch((err) => {
-        if (err.name === 'AbortError') {
+        if (cancelled) {
           return
         }
-        setError(err.message ?? 'Unable to load items.')
+        setRecords(payload.records ?? [])
       })
-      .finally(() => setLoading(false))
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+        setError(err.message ?? '無法載入 Record 清單。')
+      })
+      .finally(() => {
+        if (cancelled) {
+          return
+        }
+        setLoading(false)
+      })
 
-    return () => controller.abort()
-  }, [page, query, sort, activeWorkspaceSlug])
-
-  const totalPages = useMemo(() => {
-    if (!pagination.total || !pagination.page_size) {
-      return 1
+    return () => {
+      cancelled = true
     }
-    return Math.max(1, Math.ceil(pagination.total / pagination.page_size))
-  }, [pagination.total, pagination.page_size])
-
-  const rangeStart =
-    pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.page_size + 1
-  const rangeEnd =
-    pagination.total === 0
-      ? 0
-      : Math.min(rangeStart + items.length - 1, pagination.total)
+  }, [activeWorkspaceSlug, refreshIndex])
 
   if (workspaceState.loading) {
     return (
@@ -104,7 +82,7 @@ export default function RecordsPage({
     return (
       <section className="page">
         <h2>Records</h2>
-        <p>Select a workspace to browse its pages.</p>
+        <p>Select a workspace to browse its records.</p>
         {hasOptions ? (
           <div className="workspace-options">
             {workspaceState.options.map((option) => (
@@ -113,14 +91,14 @@ export default function RecordsPage({
                 type="button"
                 onClick={() => onSelectWorkspace(option.slug)}
               >
-                {option.slug} ({option.pages} pages)
+                {option.slug} ({option.records} records)
               </button>
             ))}
           </div>
         ) : (
           <p className="records-empty">
-            No workspace directories were found. Add one under the configured
-            root and refresh.
+            No workspace directories were found. Add one under the configured root
+            and refresh.
           </p>
         )}
         <button type="button" className="link-button" onClick={onRefreshWorkspaces}>
@@ -130,101 +108,149 @@ export default function RecordsPage({
     )
   }
 
-  const handleOpenItem = (item) => {
-    onNavigate(`/items/${encodeURIComponent(item.id)}`)
+  const totalPages = records.reduce(
+    (acc, record) => acc + (record.page_count ?? 0),
+    0,
+  )
+
+  const handleOpenRecord = (slug) => {
+    onNavigate(`/records/${encodeURIComponent(slug)}`)
+  }
+
+  const handleRefreshRecords = () => {
+    setRefreshIndex((value) => value + 1)
+  }
+
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0]
+    setUploadFile(file ?? null)
+  }
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    if (!uploadFile) {
+      setUploadError('請選擇包含頁面影像的 ZIP 檔案。')
+      return
+    }
+    setUploadBusy(true)
+    setUploadError(null)
+    try {
+      await api.createRecord({
+        file: uploadFile,
+        slug: uploadSlug.trim() || undefined,
+        title: uploadTitle.trim() || undefined,
+      })
+      setUploadFile(null)
+      setUploadSlug('')
+      setUploadTitle('')
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      setRefreshIndex((value) => value + 1)
+      onRefreshWorkspaces()
+    } catch (err) {
+      setUploadError(err.message ?? '上傳失敗，請稍後再試。')
+    } finally {
+      setUploadBusy(false)
+    }
   }
 
   return (
     <section className="page">
       <header className="records-header">
         <div>
-          <h2>Pages in {activeWorkspace.slug}</h2>
+          <h2>Records in {activeWorkspace.slug}</h2>
           <p className="records-summary">
-            {pagination.total
-              ? `Showing ${rangeStart}-${rangeEnd} of ${pagination.total} pages`
-              : 'Workspace is empty.'}
+            {loading
+              ? 'Loading record list…'
+              : records.length
+                ? `共 ${records.length} 筆記錄，合計 ${totalPages} 頁`
+                : '尚未有任何 Record。'}
           </p>
         </div>
         <div className="records-actions">
-          <label className="input input--search">
-            <span>Search</span>
-            <input
-              type="search"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Filename or record…"
-            />
-          </label>
-          <label className="input input--sort">
-            <span>Sort</span>
-            <select value={sort} onChange={(event) => setSort(event.target.value)}>
-              <option value="record">Record + filename</option>
-              <option value="filename">Filename</option>
-            </select>
-          </label>
+          <button type="button" onClick={handleRefreshRecords} disabled={loading}>
+            Refresh records
+          </button>
         </div>
       </header>
 
-      {error ? <p className="error-banner">Failed to load items: {error}</p> : null}
+      {error ? <p className="error-banner">Failed to load records: {error}</p> : null}
 
-      <div className="records-grid">
-        {loading && !items.length ? (
-          <div className="records-empty">Loading pages…</div>
+      <div className="record-list">
+        {loading && !records.length ? (
+          <div className="records-empty">Loading records…</div>
         ) : null}
 
-        {!loading && items.length === 0 ? (
-          <div className="records-empty">No pages matched your filters.</div>
+        {!loading && records.length === 0 ? (
+          <div className="records-empty">
+            尚未上傳或掛載任何 Record，請使用下方表單建立。
+          </div>
         ) : null}
 
-        {items.map((item) => (
-          <article key={item.id} className="record-card">
-            <button
-              type="button"
-              className="record-card__image"
-              onClick={() => handleOpenItem(item)}
-            >
-              <img src={item.thumbnail_url} alt={item.filename} loading="lazy" />
-            </button>
-            <div className="record-card__meta">
-              <span className="record-card__record">{item.record}</span>
-              <span className="record-card__filename">{item.filename}</span>
-              <a
-                className="record-card__link"
-                href={item.original_url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open original
-              </a>
+        {records.map((record) => (
+          <article key={record.slug} className="record-summary">
+            <div className="record-summary__body">
+              <h3>{record.title || record.slug}</h3>
+              <p className="record-summary__meta">
+                Slug: <code>{record.slug}</code> • Pages: {record.page_count ?? 0} •
+                Created: {formatDate(record.created_at)}
+              </p>
+              {record.source?.name ? (
+                <p className="record-summary__source">
+                  來源：{record.source.name}
+                </p>
+              ) : null}
+            </div>
+            <div className="record-summary__actions">
+              <button type="button" onClick={() => handleOpenRecord(record.slug)}>
+                Open
+              </button>
             </div>
           </article>
         ))}
       </div>
 
-      <footer className="records-footer">
-        <div className="pagination">
-          <button
-            type="button"
-            onClick={() => setPage((value) => Math.max(1, value - 1))}
-            disabled={page <= 1 || loading}
-          >
-            Previous
-          </button>
-          <span>
-            Page {page} / {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
-            disabled={page >= totalPages || loading}
-          >
-            Next
-          </button>
-        </div>
-        <button type="button" className="link-button" onClick={onRefreshWorkspaces}>
-          Refresh workspace stats
-        </button>
-      </footer>
+      <section className="record-upload">
+        <h3>新增 Record</h3>
+        <form onSubmit={handleSubmit} className="record-upload__form">
+          <label className="input">
+            <span>顯示名稱（選填）</span>
+            <input
+              type="text"
+              value={uploadTitle}
+              onChange={(event) => setUploadTitle(event.target.value)}
+              placeholder="例如：Demo Record"
+            />
+          </label>
+          <label className="input">
+            <span>Slug（選填，未填將自動產生）</span>
+            <input
+              type="text"
+              value={uploadSlug}
+              onChange={(event) => setUploadSlug(event.target.value)}
+              placeholder="demo-record"
+            />
+          </label>
+          <label className="input">
+            <span>Record 壓縮檔（ZIP）</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".zip"
+              onChange={handleFileChange}
+            />
+          </label>
+          {uploadError ? (
+            <p className="record-upload__error">上傳失敗：{uploadError}</p>
+          ) : null}
+          <div className="record-upload__actions">
+            <button type="submit" disabled={uploadBusy || !uploadFile}>
+              {uploadBusy ? 'Uploading…' : 'Upload record'}
+            </button>
+          </div>
+        </form>
+      </section>
     </section>
   )
 }

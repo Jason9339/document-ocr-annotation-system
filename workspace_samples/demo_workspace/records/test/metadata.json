@@ -1,0 +1,10 @@
+{
+  "slug": "test",
+  "title": "test",
+  "created_at": "2025-10-30T03:04:50.670825+00:00",
+  "page_count": 14,
+  "source": {
+    "type": "upload",
+    "name": "test.zip"
+  }
+}

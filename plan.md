@@ -135,7 +135,7 @@ repo/
 
 ### M2｜Record 上傳/掛載與頁面展開
 
-**目標**：引入 Record 概念，將 PDF/TIFF/資料夾展開為 pages。
+**目標**：引入 Record 概念，將資料夾展開為 pages，每個資料夾是一筆record，每個record可能有多個 page。
 **主要工作**：
 
 * 後端：`POST /api/v1/records`，展開並寫入 `records/` 索引；為每頁建立空 sidecar。

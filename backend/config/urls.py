@@ -24,6 +24,8 @@ from records.views import (
     item_thumbnail,
     list_items_view,
     open_workspace,
+    record_detail_view,
+    records_root,
 )
 
 urlpatterns = [
@@ -40,6 +42,8 @@ urlpatterns = [
     path('api/v1/workspaces', available_workspaces),
     path('api/v1/workspace', current_workspace),
     path('api/v1/workspace/open', open_workspace),
+    path('api/v1/records', records_root),
+    path('api/v1/records/<str:record_slug>', record_detail_view),
     path('api/v1/items', list_items_view),
     path('api/v1/items/thumbnail', item_thumbnail),
     path('api/v1/items/raw', item_original),

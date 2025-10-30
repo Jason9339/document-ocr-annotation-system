@@ -262,6 +262,12 @@ body {
   margin-top: 0.5rem;
 }
 
+.record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
 .records-empty {
   grid-column: 1 / -1;
   text-align: center;
@@ -269,6 +275,57 @@ body {
   color: #475569;
   padding: 2rem 1rem;
   border-radius: 12px;
+}
+
+.record-summary {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.25rem;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
+}
+
+.record-summary__body {
+  flex: 1;
+}
+
+.record-summary h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #0f172a;
+}
+
+.record-summary__meta {
+  margin: 0.35rem 0 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.record-summary__meta code {
+  background: #e2e8f0;
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.record-summary__source {
+  margin: 0.35rem 0 0;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.record-summary__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.record-summary__actions button {
+  align-self: flex-start;
 }
 
 .record-card {
@@ -330,6 +387,43 @@ body {
 
 .record-card__link:hover {
   text-decoration: underline;
+}
+
+.record-upload {
+  background: #f8fafc;
+  border: 1px dashed #94a3b8;
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.record-upload h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #0f172a;
+}
+
+.record-upload__form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.record-upload__error {
+  margin: 0;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.record-upload__actions button {
+  align-self: flex-start;
+}
+
+.record-upload__actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .records-footer {

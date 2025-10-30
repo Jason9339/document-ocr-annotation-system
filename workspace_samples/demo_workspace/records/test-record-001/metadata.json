@@ -1,0 +1,10 @@
+{
+  "slug": "test-record-001",
+  "title": "測試 Record 001",
+  "created_at": "2025-10-30T03:00:23.045442+00:00",
+  "page_count": 14,
+  "source": {
+    "type": "upload",
+    "name": "test_upload.zip"
+  }
+}

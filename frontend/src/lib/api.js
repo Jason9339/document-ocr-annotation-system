@@ -47,11 +47,38 @@ export async function openWorkspace(slug) {
   })
 }
 
+export async function getRecords() {
+  return fetchJSON('/api/v1/records')
+}
+
+export async function getRecord(slug) {
+  return fetchJSON(`/api/v1/records/${encodeURIComponent(slug)}`)
+}
+
+export async function createRecord({ file, slug, title }) {
+  if (!file) {
+    throw new Error('Record file is required.')
+  }
+  const formData = new FormData()
+  formData.append('file', file)
+  if (slug) {
+    formData.append('slug', slug)
+  }
+  if (title) {
+    formData.append('title', title)
+  }
+  return fetchJSON('/api/v1/records', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
 export async function getItems({
   page = 1,
   pageSize = 20,
   query,
   sort,
+  record,
   signal,
 }) {
   const params = new URLSearchParams()
@@ -63,6 +90,9 @@ export async function getItems({
   if (sort) {
     params.set('sort', sort)
   }
+  if (record) {
+    params.set('record', record)
+  }
 
   return fetchJSON(`/api/v1/items?${params.toString()}`, { signal })
 }
@@ -72,4 +102,7 @@ export const api = {
   getCurrentWorkspace,
   openWorkspace,
   getItems,
+  getRecords,
+  createRecord,
+  getRecord,
 }

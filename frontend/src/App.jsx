@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import LoginPage from './pages/Login.jsx'
 import RecordsPage from './pages/Records.jsx'
+import RecordPagesPage from './pages/RecordPages.jsx'
 import RecordItemPage from './pages/RecordItem.jsx'
 import WorkspaceSelector from './components/WorkspaceSelector.jsx'
 import { api } from './lib/api.js'
@@ -9,6 +10,11 @@ import './App.css'
 const routes = [
   { name: 'login', pattern: /^\/login$/, component: LoginPage },
   { name: 'records', pattern: /^\/records$/, component: RecordsPage },
+  {
+    name: 'record-pages',
+    pattern: /^\/records\/(?<slug>[^/]+)$/,
+    component: RecordPagesPage,
+  },
   {
     name: 'record-item',
     pattern: /^\/items\/(?<id>[^/]+)$/,
@@ -215,7 +221,7 @@ function App() {
         <div>
           <h1>NCCU OCR Annotation</h1>
           <p className="tagline">
-            Milestone 1 — Workspace &amp; page listing (read-only)
+            Milestone 2 — Record 上傳與頁面展開
           </p>
         </div>
         <HealthIndicator />
