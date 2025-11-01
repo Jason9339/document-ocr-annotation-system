@@ -15,11 +15,14 @@ from .services import (
     create_record_from_upload,
     filter_items,
     get_active_workspace,
+    get_item,
     get_record,
     iter_items,
     list_records,
     list_workspaces,
+    load_annotations,
     paginate_items,
+    save_annotations,
     set_active_workspace,
 )
 from .thumbnails import ensure_thumbnail
@@ -264,3 +267,35 @@ def record_detail_view(request, record_slug: str):
     record_payload["pages"] = pages
     record_payload["page_count"] = len(pages)
     return JsonResponse({"ok": True, "record": record_payload})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "PUT"])
+def item_annotations_view(request, item_id: str):
+    try:
+        workspace = _active_workspace_or_400()
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    try:
+        get_item(workspace, item_id)
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+
+    if request.method == "GET":
+        payload = load_annotations(workspace, item_id)
+        return JsonResponse({"ok": True, **payload})
+
+    try:
+        data = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON payload.")
+
+    if not isinstance(data, dict):
+        return HttpResponseBadRequest("Payload must be a JSON object.")
+
+    if "annotations" in data and not isinstance(data["annotations"], list):
+        return HttpResponseBadRequest("'annotations' must be an array.")
+
+    saved = save_annotations(workspace, item_id, data)
+    return JsonResponse({"ok": True, **saved})

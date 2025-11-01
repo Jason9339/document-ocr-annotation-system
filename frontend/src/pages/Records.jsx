@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Search, Upload, RefreshCw, BookOpen, ArrowRight, ChevronRight } from 'lucide-react'
 import { api } from '../lib/api.js'
 
 function formatDate(value) {
@@ -14,7 +16,6 @@ function formatDate(value) {
 
 export default function RecordsPage({
   workspaceState,
-  onSelectWorkspace,
   onRefreshWorkspaces,
   onNavigate,
 }) {
@@ -24,6 +25,7 @@ export default function RecordsPage({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [refreshIndex, setRefreshIndex] = useState(0)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const fileInputRef = useRef(null)
   const [uploadFile, setUploadFile] = useState(null)
@@ -78,32 +80,22 @@ export default function RecordsPage({
   }
 
   if (!activeWorkspace) {
-    const hasOptions = workspaceState.options && workspaceState.options.length > 0
     return (
-      <section className="page">
-        <h2>Records</h2>
-        <p>Select a workspace to browse its records.</p>
-        {hasOptions ? (
-          <div className="workspace-options">
-            {workspaceState.options.map((option) => (
-              <button
-                key={option.slug}
-                type="button"
-                onClick={() => onSelectWorkspace(option.slug)}
-              >
-                {option.slug} ({option.records} records)
-              </button>
-            ))}
+      <section className="page records-page">
+        <div className="page-header">
+          <div className="page-header__titles">
+            <h1>書籍清單</h1>
+            <p>請先選擇欲瀏覽的工作區。</p>
           </div>
-        ) : (
-          <p className="records-empty">
-            No workspace directories were found. Add one under the configured root
-            and refresh.
-          </p>
-        )}
-        <button type="button" className="link-button" onClick={onRefreshWorkspaces}>
-          Refresh list
-        </button>
+          <div className="page-header__actions">
+            <button type="button" className="primary-button" onClick={() => onNavigate('/workspaces')}>
+              前往工作區清單
+            </button>
+          </div>
+        </div>
+        <div className="records-empty records-empty--with-button">
+          尚未選擇工作區。按下「前往工作區清單」以挑選欲瀏覽的 Workspace。
+        </div>
       </section>
     )
   }
@@ -112,6 +104,17 @@ export default function RecordsPage({
     (acc, record) => acc + (record.page_count ?? 0),
     0,
   )
+
+  const filteredRecords = records.filter((record) => {
+    if (!searchTerm.trim()) {
+      return true
+    }
+    const value = searchTerm.trim().toLowerCase()
+    return (
+      (record.title && record.title.toLowerCase().includes(value)) ||
+      record.slug.toLowerCase().includes(value)
+    )
+  })
 
   const handleOpenRecord = (slug) => {
     onNavigate(`/records/${encodeURIComponent(slug)}`)
@@ -155,65 +158,80 @@ export default function RecordsPage({
     }
   }
 
+  const breadcrumbContainer = document.querySelector('.app-header__breadcrumb')
+
+  const breadcrumb = (
+    <nav className="breadcrumb">
+      <button
+        type="button"
+        className="breadcrumb__item breadcrumb__link"
+        onClick={() => onNavigate('/workspaces')}
+      >
+        工作區
+      </button>
+      <ChevronRight size={16} className="breadcrumb__separator" />
+      <span className="breadcrumb__item">{activeWorkspace.slug}</span>
+    </nav>
+  )
+
   return (
-    <section className="page">
-      <header className="records-header">
-        <div>
-          <h2>Records in {activeWorkspace.slug}</h2>
-          <p className="records-summary">
+    <section className="page records-page">
+      {breadcrumbContainer && createPortal(breadcrumb, breadcrumbContainer)}
+
+      <div className="page-header">
+        <div className="page-header__titles">
+          <h1>書籍清單</h1>
+          <p>
             {loading
-              ? 'Loading record list…'
-              : records.length
-                ? `共 ${records.length} 筆記錄，合計 ${totalPages} 頁`
-                : '尚未有任何 Record。'}
+              ? '正在載入書籍…'
+              : `共 ${records.length} 筆書籍，合計 ${totalPages} 頁`}
           </p>
         </div>
-        <div className="records-actions">
-          <button type="button" onClick={handleRefreshRecords} disabled={loading}>
-            Refresh records
+        <div className="page-header__actions">
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={handleRefreshRecords}
+            disabled={loading}
+          >
+            <RefreshCw size={16} />
+            重新整理
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => {
+              if (fileInputRef.current) {
+                fileInputRef.current.click()
+              }
+            }}
+          >
+            <Upload size={16} />
+            上傳書籍
           </button>
         </div>
-      </header>
-
-      {error ? <p className="error-banner">Failed to load records: {error}</p> : null}
-
-      <div className="record-list">
-        {loading && !records.length ? (
-          <div className="records-empty">Loading records…</div>
-        ) : null}
-
-        {!loading && records.length === 0 ? (
-          <div className="records-empty">
-            尚未上傳或掛載任何 Record，請使用下方表單建立。
-          </div>
-        ) : null}
-
-        {records.map((record) => (
-          <article key={record.slug} className="record-summary">
-            <div className="record-summary__body">
-              <h3>{record.title || record.slug}</h3>
-              <p className="record-summary__meta">
-                Slug: <code>{record.slug}</code> • Pages: {record.page_count ?? 0} •
-                Created: {formatDate(record.created_at)}
-              </p>
-              {record.source?.name ? (
-                <p className="record-summary__source">
-                  來源：{record.source.name}
-                </p>
-              ) : null}
-            </div>
-            <div className="record-summary__actions">
-              <button type="button" onClick={() => handleOpenRecord(record.slug)}>
-                Open
-              </button>
-            </div>
-          </article>
-        ))}
       </div>
 
-      <section className="record-upload">
-        <h3>新增 Record</h3>
-        <form onSubmit={handleSubmit} className="record-upload__form">
+      <div className="records-summary-panel">
+        <div>
+          <span className="records-summary-panel__label">當前工作區</span>
+          <h2>{activeWorkspace.slug}</h2>
+        </div>
+        <div className="records-summary-panel__stats">
+          <div>
+            <span className="records-summary-panel__metric">{records.length}</span>
+            <span className="records-summary-panel__metric-label">書籍</span>
+          </div>
+          <div>
+            <span className="records-summary-panel__metric">{totalPages}</span>
+            <span className="records-summary-panel__metric-label">頁面</span>
+          </div>
+        </div>
+      </div>
+
+      <section className="record-create">
+        <h3>新增書籍</h3>
+        <form onSubmit={handleSubmit} className="record-create__form">
           <label className="input">
             <span>顯示名稱（選填）</span>
             <input
@@ -242,15 +260,113 @@ export default function RecordsPage({
             />
           </label>
           {uploadError ? (
-            <p className="record-upload__error">上傳失敗：{uploadError}</p>
+            <p className="record-create__error">上傳失敗：{uploadError}</p>
           ) : null}
-          <div className="record-upload__actions">
-            <button type="submit" disabled={uploadBusy || !uploadFile}>
-              {uploadBusy ? 'Uploading…' : 'Upload record'}
+          <div className="record-create__actions">
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={uploadBusy || !uploadFile}
+            >
+              {uploadBusy ? '上傳中…' : '確認上傳'}
             </button>
           </div>
         </form>
       </section>
+
+      <div className="records-table-card">
+        <div className="records-table-toolbar">
+          <div className="records-table-search">
+            <Search size={18} className="records-table-search__icon" />
+            <input
+              type="text"
+              placeholder="搜尋書名或 slug..."
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
+          </div>
+          <span className="records-table-count">
+            {filteredRecords.length} / {records.length} 筆
+          </span>
+        </div>
+
+        {error ? <p className="error-banner">Failed to load records: {error}</p> : null}
+
+        {loading && !records.length ? (
+          <div className="records-empty">正在載入書籍…</div>
+        ) : null}
+
+        {!loading && records.length === 0 ? (
+          <div className="records-empty">
+            尚未上傳或掛載任何書籍，請使用上方表單建立。
+          </div>
+        ) : null}
+
+        {!loading && filteredRecords.length > 0 ? (
+          <div className="records-table-wrapper">
+            <table className="records-table">
+              <thead>
+                <tr>
+                  <th>書名</th>
+                  <th>編號</th>
+                  <th>頁數</th>
+                  <th>完成度</th>
+                  <th>狀態</th>
+                  <th>最後更新</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRecords.map((record) => (
+                  <tr key={record.slug}>
+                    <td>
+                      <div className="records-table__title">
+                        <div className="records-table__icon" aria-hidden="true">
+                          <BookOpen size={20} />
+                        </div>
+                        <div>
+                          <div className="records-table__name">
+                            {record.title || record.slug}
+                          </div>
+                          <div className="records-table__meta">
+                            {record.page_count ?? 0} 頁
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <code className="records-table__code">{record.slug}</code>
+                    </td>
+                    <td className="records-table__number">{record.page_count ?? 0}</td>
+                    <td>
+                      <div className="progress-bar">
+                        <div className="progress-bar__track">
+                          <div className="progress-bar__fill" style={{ width: '0%' }}></div>
+                        </div>
+                        <span className="progress-bar__label">0%</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="status-badge status-badge--pending">未開始</span>
+                    </td>
+                    <td className="records-table__date">{formatDate(record.created_at)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => handleOpenRecord(record.slug)}
+                      >
+                        開啟
+                        <ArrowRight size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
     </section>
   )
 }

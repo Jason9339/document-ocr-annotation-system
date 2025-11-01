@@ -33,3 +33,12 @@ frontend/dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# Workspace data (thumbnails, labels, temp files)
+workspace_samples/**/.thumbnails/
+workspace_samples/**/labels/
+workspace_samples/**/.locks/
+workspace_samples/**/.history/
+
+# Generated files for reference/testing
+generated-*.html

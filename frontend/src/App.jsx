@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Folder, BookOpen, FileText, Bell, Settings, User, Edit3 } from 'lucide-react'
 import LoginPage from './pages/Login.jsx'
 import RecordsPage from './pages/Records.jsx'
 import RecordPagesPage from './pages/RecordPages.jsx'
 import RecordItemPage from './pages/RecordItem.jsx'
-import WorkspaceSelector from './components/WorkspaceSelector.jsx'
+import WorkspacesPage from './pages/Workspaces.jsx'
 import { api } from './lib/api.js'
 import './App.css'
 
 const routes = [
+  { name: 'workspaces', pattern: /^\/workspaces$/, component: WorkspacesPage },
   { name: 'login', pattern: /^\/login$/, component: LoginPage },
   { name: 'records', pattern: /^\/records$/, component: RecordsPage },
   {
@@ -22,7 +24,7 @@ const routes = [
   },
 ]
 
-const defaultRoute = '/records'
+const defaultRoute = '/workspaces'
 
 function matchRoute(pathname) {
   for (const route of routes) {
@@ -117,9 +119,38 @@ function HealthIndicator() {
   )
 }
 
-const navLinks = [
-  { to: '/login', label: 'Login' },
-  { to: '/records', label: 'Records' },
+const navLinks = []
+
+const sidebarLinks = [
+  {
+    key: 'workspaces',
+    label: '工作區',
+    icon: Folder,
+    to: '/workspaces',
+    matches: ['workspaces'],
+  },
+  {
+    key: 'records',
+    label: '書籍清單',
+    icon: BookOpen,
+    to: '/records',
+    matches: ['records'],
+  },
+  {
+    key: 'pages',
+    label: '頁面列表',
+    icon: FileText,
+    to: '/records',
+    matches: ['record-pages'],
+  },
+  {
+    key: 'annotate',
+    label: '標註介面',
+    icon: Edit3,
+    to: '/annotate',
+    matches: ['annotate'],
+    disabled: true,
+  },
 ]
 
 function App() {
@@ -132,6 +163,11 @@ function App() {
     error: null,
   })
   const [workspaceBusy, setWorkspaceBusy] = useState(false)
+  const showNav = route?.name !== 'record-item'
+  const showSidebar = route?.name !== 'record-item'
+
+  const activeSidebarKey =
+    sidebarLinks.find((link) => link.matches?.includes(route?.name))?.key ?? null
 
   const loadWorkspaces = useCallback(async () => {
     setWorkspaceState((prev) => ({
@@ -163,46 +199,42 @@ function App() {
     loadWorkspaces()
   }, [loadWorkspaces])
 
-  const handleSelectWorkspace = useCallback(
-    async (slug) => {
-      if (!slug) {
-        return
-      }
-      setWorkspaceBusy(true)
-      try {
-        const payload = await api.openWorkspace(slug)
-        const workspacePayload = payload.workspace
-        setWorkspaceState((prev) => ({
-          ...prev,
-          current: workspacePayload ?? prev.current,
-          options: (() => {
-            if (!workspacePayload) {
-              return prev.options
-            }
-            const exists = prev.options.some((option) => option.slug === slug)
-            if (exists) {
-              return prev.options.map((option) =>
-                option.slug === slug ? workspacePayload : option,
-              )
-            }
-            return [...prev.options, workspacePayload]
-          })(),
-          error: null,
-        }))
-        if (route?.name !== 'records') {
-          navigate('/records')
-        }
-      } catch (error) {
-        setWorkspaceState((prev) => ({
-          ...prev,
-          error: error.message ?? 'Unable to open workspace.',
-        }))
-      } finally {
-        setWorkspaceBusy(false)
-      }
-    },
-    [navigate, route?.name],
-  )
+  const handleSelectWorkspace = useCallback(async (slug) => {
+    if (!slug) {
+      return false
+    }
+    setWorkspaceBusy(true)
+    try {
+      const payload = await api.openWorkspace(slug)
+      const workspacePayload = payload.workspace
+      setWorkspaceState((prev) => ({
+        ...prev,
+        current: workspacePayload ?? prev.current,
+        options: (() => {
+          if (!workspacePayload) {
+            return prev.options
+          }
+          const exists = prev.options.some((option) => option.slug === slug)
+          if (exists) {
+            return prev.options.map((option) =>
+              option.slug === slug ? workspacePayload : option,
+            )
+          }
+          return [...prev.options, workspacePayload]
+        })(),
+        error: null,
+      }))
+      return true
+    } catch (error) {
+      setWorkspaceState((prev) => ({
+        ...prev,
+        error: error.message ?? 'Unable to open workspace.',
+      }))
+      return false
+    } finally {
+      setWorkspaceBusy(false)
+    }
+  }, [])
 
   const handleRefreshWorkspaces = useCallback(() => {
     loadWorkspaces()
@@ -212,49 +244,106 @@ function App() {
     if (route?.name === 'login') {
       return '/login'
     }
-    return '/records'
+    return '/workspaces'
   }, [route?.name])
 
+  const appShellClass = useMemo(
+    () => `app-shell ${showSidebar ? 'app-shell--with-sidebar' : 'app-shell--full'}`,
+    [showSidebar],
+  )
+
+  const workspaceContext = useMemo(
+    () => ({
+      ...workspaceState,
+      busy: workspaceState.loading || workspaceBusy,
+    }),
+    [workspaceState, workspaceBusy],
+  )
+
   return (
-    <div className="app">
-      <header className="header">
-        <div>
-          <h1>NCCU OCR Annotation</h1>
-          <p className="tagline">
-            Milestone 2 — Record 上傳與頁面展開
-          </p>
+    <div className={appShellClass}>
+      {showSidebar ? (
+        <aside className="sidebar">
+          <div className="sidebar__brand">
+            <h2>OCR Platform</h2>
+          </div>
+          <nav className="sidebar__nav">
+            {sidebarLinks.map((link) => {
+              const IconComponent = link.icon
+              const isActive = link.key === activeSidebarKey
+              return (
+                <button
+                  key={link.key}
+                  type="button"
+                  className={isActive ? 'active' : ''}
+                  onClick={() => {
+                    if (link.disabled) {
+                      return
+                    }
+                    navigate(link.to)
+                  }}
+                  disabled={link.disabled}
+                >
+                  <IconComponent size={20} />
+                  <span>{link.label}</span>
+                </button>
+              )
+            })}
+          </nav>
+          <div className="sidebar__footer">
+            <button type="button" className="sidebar__footer-btn">
+              <Bell size={20} />
+              <span>通知</span>
+            </button>
+            <button type="button" className="sidebar__footer-btn">
+              <Settings size={20} />
+              <span>設定</span>
+            </button>
+            <div className="sidebar__user">
+              <div className="sidebar__user-avatar">
+                <User size={18} />
+              </div>
+              <div className="sidebar__user-info">
+                <div className="sidebar__user-name">使用者</div>
+                <div className="sidebar__user-role">管理員</div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      ) : null}
+      <div className="app">
+        <div className="app-header">
+          <div className="app-header__breadcrumb">
+            {/* Breadcrumb will be rendered by pages */}
+          </div>
+          <div className="app-header__status">
+            <HealthIndicator />
+          </div>
         </div>
-        <HealthIndicator />
-      </header>
-      <WorkspaceSelector
-        workspaces={workspaceState.options}
-        current={workspaceState.current}
-        loading={workspaceState.loading || workspaceBusy}
-        error={workspaceState.error}
-        onSelect={handleSelectWorkspace}
-        onRefresh={handleRefreshWorkspaces}
-      />
-      <nav className="nav">
-        {navLinks.map((link) => (
-          <button
-            key={link.to}
-            type="button"
-            className={link.to === navActivePath ? 'active' : ''}
-            onClick={() => navigate(link.to)}
-          >
-            {link.label}
-          </button>
-        ))}
-      </nav>
-      <main className="main">
-        <CurrentPage
-          params={route?.params ?? {}}
-          onNavigate={navigate}
-          workspaceState={workspaceState}
-          onSelectWorkspace={handleSelectWorkspace}
-          onRefreshWorkspaces={handleRefreshWorkspaces}
-        />
-      </main>
+        {showNav ? (
+          <nav className="nav">
+            {navLinks.map((link) => (
+              <button
+                key={link.to}
+                type="button"
+                className={link.to === navActivePath ? 'active' : ''}
+                onClick={() => navigate(link.to)}
+              >
+                {link.label}
+              </button>
+            ))}
+          </nav>
+        ) : null}
+        <main className="main">
+          <CurrentPage
+            params={route?.params ?? {}}
+            onNavigate={navigate}
+            workspaceState={workspaceContext}
+            onSelectWorkspace={handleSelectWorkspace}
+            onRefreshWorkspaces={handleRefreshWorkspaces}
+          />
+        </main>
+      </div>
     </div>
   )
 }

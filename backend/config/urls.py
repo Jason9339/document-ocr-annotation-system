@@ -26,6 +26,7 @@ from records.views import (
     open_workspace,
     record_detail_view,
     records_root,
+    item_annotations_view,
 )
 
 urlpatterns = [
@@ -47,4 +48,5 @@ urlpatterns = [
     path('api/v1/items', list_items_view),
     path('api/v1/items/thumbnail', item_thumbnail),
     path('api/v1/items/raw', item_original),
+    path('api/v1/items/<path:item_id>/annotations', item_annotations_view),
 ]

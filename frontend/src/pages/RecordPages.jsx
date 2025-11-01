@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Search, ArrowLeft, ChevronLeft, ChevronRight, FileImage, ChevronRight as BreadcrumbSeparator } from 'lucide-react'
 import { api } from '../lib/api.js'
 
 const PAGE_SIZE = 12
@@ -18,7 +20,6 @@ export default function RecordPagesPage({
   params,
   workspaceState,
   onNavigate,
-  onSelectWorkspace,
   onRefreshWorkspaces,
 }) {
   const recordSlug = params.slug ? decodeURIComponent(params.slug) : null
@@ -154,31 +155,30 @@ export default function RecordPagesPage({
   }
 
   if (!activeWorkspace) {
-    const hasOptions = workspaceState.options && workspaceState.options.length > 0
     return (
-      <section className="page">
-        <h2>Record Pages</h2>
-        <p>Select a workspace to browse its records.</p>
-        {hasOptions ? (
-          <div className="workspace-options">
-            {workspaceState.options.map((option) => (
-              <button
-                key={option.slug}
-                type="button"
-                onClick={() => onSelectWorkspace?.(option.slug)}
-              >
-                {option.slug}
-              </button>
-            ))}
+      <section className="page record-pages">
+        <header className="records-header">
+          <div>
+            <h2>請先選擇 Workspace</h2>
+            <p className="records-summary">
+              前往 Workspace 清單後選擇欲瀏覽的 Workspace，再回到此頁。
+            </p>
           </div>
-        ) : (
-          <p className="records-empty">
-            No workspace directories were found. Add one under the configured root
-            and refresh.
-          </p>
-        )}
-        <button type="button" className="link-button" onClick={onRefreshWorkspaces}>
-          Refresh list
+          <div className="records-header__actions">
+            <button type="button" onClick={() => onNavigate('/workspaces')}>
+              前往 Workspace 清單
+            </button>
+          </div>
+        </header>
+        <div className="records-empty records-empty--with-button">
+          尚未選擇 Workspace。按下「前往 Workspace 清單」以挑選要瀏覽的 Workspace。
+        </div>
+        <button
+          type="button"
+          className="link-button"
+          onClick={onRefreshWorkspaces}
+        >
+          重新整理 Workspace 狀態
         </button>
       </section>
     )
@@ -203,8 +203,34 @@ export default function RecordPagesPage({
   const recordTitle =
     recordInfo.data?.title || recordSlug.replace(/[-_]/g, ' ').trim() || recordSlug
 
+  const breadcrumbContainer = document.querySelector('.app-header__breadcrumb')
+
+  const breadcrumb = (
+    <nav className="breadcrumb">
+      <button
+        type="button"
+        className="breadcrumb__item breadcrumb__link"
+        onClick={() => onNavigate('/workspaces')}
+      >
+        工作區
+      </button>
+      <BreadcrumbSeparator size={16} className="breadcrumb__separator" />
+      <button
+        type="button"
+        className="breadcrumb__item breadcrumb__link"
+        onClick={() => onNavigate('/records')}
+      >
+        {activeWorkspace.slug}
+      </button>
+      <BreadcrumbSeparator size={16} className="breadcrumb__separator" />
+      <span className="breadcrumb__item">{recordTitle}</span>
+    </nav>
+  )
+
   return (
-    <section className="page">
+    <section className="page record-pages">
+      {breadcrumbContainer && createPortal(breadcrumb, breadcrumbContainer)}
+
       <header className="records-header">
         <div>
           <h2>{recordTitle}</h2>
@@ -219,90 +245,112 @@ export default function RecordPagesPage({
           </p>
         </div>
         <div className="records-actions">
-          <button type="button" onClick={() => onNavigate('/records')}>
-            Back to records
+          <button type="button" className="ghost-button" onClick={() => onNavigate('/records')}>
+            <ArrowLeft size={16} />
+            返回書籍清單
           </button>
         </div>
       </header>
 
       {error ? <p className="error-banner">Failed to load items: {error}</p> : null}
 
-      <div className="records-actions">
-        <label className="input input--search">
-          <span>Search</span>
-          <input
-            type="search"
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Filename or record…"
-          />
-        </label>
-        <label className="input input--sort">
-          <span>Sort</span>
-          <select value={sort} onChange={(event) => setSort(event.target.value)}>
-            <option value="record">Record + filename</option>
-            <option value="filename">Filename</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="records-grid">
-        {loading && !items.length ? (
-          <div className="records-empty">Loading pages…</div>
-        ) : null}
-
-        {!loading && items.length === 0 ? (
-          <div className="records-empty">No pages matched your filters.</div>
-        ) : null}
-
-        {items.map((item) => (
-          <article key={item.id} className="record-card">
-            <button
-              type="button"
-              className="record-card__image"
-              onClick={() => handleOpenItem(item)}
-            >
-              <img src={item.thumbnail_url} alt={item.filename} loading="lazy" />
-            </button>
-            <div className="record-card__meta">
-              <span className="record-card__record">{item.record}</span>
-              <span className="record-card__filename">{item.filename}</span>
-              <a
-                className="record-card__link"
-                href={item.original_url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open original
-              </a>
+      <section className="record-pages__summary">
+        <div className="record-pages__meta">
+          <div>
+            <span className="record-pages__meta-label">總頁數</span>
+            <strong>{pagination.total}</strong>
+          </div>
+          {recordInfo.data?.created_at ? (
+            <div>
+              <span className="record-pages__meta-label">建立時間</span>
+              <span>{formatDate(recordInfo.data.created_at)}</span>
             </div>
-          </article>
-        ))}
+          ) : null}
+        </div>
+        <div className="record-pages__controls">
+          <label className="input input--search">
+            <span>搜尋頁面</span>
+            <div style={{ position: 'relative' }}>
+              <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
+              <input
+                type="search"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="輸入檔名或關鍵字"
+                style={{ paddingLeft: '2.5rem' }}
+              />
+            </div>
+          </label>
+          <label className="input input--sort">
+            <span>排序方式</span>
+            <select value={sort} onChange={(event) => setSort(event.target.value)}>
+              <option value="record">Record + filename</option>
+              <option value="filename">Filename</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <div className="records-panel record-pages__panel">
+        <div className="record-pages-grid">
+          {loading && !items.length ? (
+            <div className="records-empty">Loading pages…</div>
+          ) : null}
+
+          {!loading && items.length === 0 ? (
+            <div className="records-empty">No pages matched your filters.</div>
+          ) : null}
+
+          {items.map((item) => (
+            <article key={item.id} className="record-card record-card--page">
+              <button
+                type="button"
+                className="record-card__image"
+                onClick={() => handleOpenItem(item)}
+              >
+                <img src={item.thumbnail_url} alt={item.filename} loading="lazy" />
+              </button>
+              <div className="record-card__meta">
+                <span className="record-card__record">{item.record}</span>
+                <span className="record-card__filename">{item.filename}</span>
+                <a
+                  className="record-card__link"
+                  href={item.original_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open original
+                </a>
+              </div>
+            </article>
+          ))}
+        </div>
       </div>
 
-      <footer className="records-footer">
+      <footer className="records-footer record-pages__footer">
         <div className="pagination">
           <button
             type="button"
+            className="ghost-button"
             onClick={() => setPage((value) => Math.max(1, value - 1))}
             disabled={page <= 1 || loading}
           >
-            Previous
+            <ChevronLeft size={16} />
+            上一頁
           </button>
-          <span>
-            Page {page} / {totalPages}
+          <span className="pagination__info">
+            第 {page} / {totalPages} 頁
           </span>
           <button
             type="button"
+            className="ghost-button"
             onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
             disabled={page >= totalPages || loading}
           >
-            Next
+            下一頁
+            <ChevronRight size={16} />
           </button>
         </div>
-        <button type="button" className="link-button" onClick={onRefreshWorkspaces}>
-          Refresh workspace stats
-        </button>
       </footer>
     </section>
   )

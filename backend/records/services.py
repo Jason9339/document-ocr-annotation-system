@@ -7,7 +7,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone as dt_timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
@@ -20,6 +20,7 @@ WORKSPACE_ROOT: Path = settings.WORKSPACES_ROOT
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 RECORD_METADATA_FILENAME = "metadata.json"
 LABELS_DIRNAME = "labels"
+ANNOTATIONS_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,13 @@ def _record_metadata_path(record_path: Path) -> Path:
     return record_path / RECORD_METADATA_FILENAME
 
 
+def _parse_item_id(item_id: str) -> Tuple[str, str]:
+    parts = item_id.split("/", 1)
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise WorkspaceError("Invalid item identifier.")
+    return parts[0], parts[1]
+
+
 def _load_record_metadata(record_path: Path) -> Dict[str, Any]:
     metadata_path = _record_metadata_path(record_path)
     if not metadata_path.exists():
@@ -171,6 +179,58 @@ def _parse_created_at(metadata: Dict[str, Any], record_path: Path) -> datetime:
         except ValueError:
             pass
     return datetime.fromtimestamp(record_path.stat().st_mtime, tz=dt_timezone.utc)
+
+
+def _annotation_payload_path(workspace: Workspace, record_slug: str, filename: str) -> Path:
+    labels_root = _labels_root(workspace, record_slug)
+    return labels_root / Path(filename).with_suffix(".json")
+
+
+def load_annotations(workspace: Workspace, item_id: str) -> Dict[str, Any]:
+    record_slug, filename = _parse_item_id(item_id)
+    sidecar_path = _annotation_payload_path(workspace, record_slug, filename)
+    if not sidecar_path.exists():
+        return {
+            "schema_version": ANNOTATIONS_SCHEMA_VERSION,
+            "annotations": [],
+            "updated_at": timezone.now().isoformat(),
+        }
+    try:
+        with sidecar_path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return {
+            "schema_version": ANNOTATIONS_SCHEMA_VERSION,
+            "annotations": [],
+            "updated_at": timezone.now().isoformat(),
+        }
+    if not isinstance(payload, dict):
+        return {
+            "schema_version": ANNOTATIONS_SCHEMA_VERSION,
+            "annotations": [],
+            "updated_at": timezone.now().isoformat(),
+        }
+    payload.setdefault("schema_version", ANNOTATIONS_SCHEMA_VERSION)
+    payload.setdefault("annotations", [])
+    payload["updated_at"] = payload.get("updated_at") or timezone.now().isoformat()
+    return payload
+
+
+def save_annotations(workspace: Workspace, item_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    record_slug, filename = _parse_item_id(item_id)
+    sidecar_path = _annotation_payload_path(workspace, record_slug, filename)
+    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "schema_version": data.get("schema_version") or ANNOTATIONS_SCHEMA_VERSION,
+        "annotations": data.get("annotations") or [],
+        "updated_at": timezone.now().isoformat(),
+    }
+
+    with sidecar_path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+    return payload
 
 
 def list_records(workspace: Workspace) -> List[Record]:
@@ -222,6 +282,25 @@ def _write_record_metadata(record_path: Path, payload: Dict[str, Any]) -> None:
     metadata_path = _record_metadata_path(record_path)
     with metadata_path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+
+def get_item(workspace: Workspace, item_id: str) -> Item:
+    record_slug, filename = _parse_item_id(item_id)
+    records_dir = _records_root(workspace)
+    record_dir = records_dir / record_slug
+    if not record_dir.exists() or not record_dir.is_dir():
+        raise WorkspaceError(f"Record '{record_slug}' does not exist.")
+    pages_dir = record_dir / "pages"
+    source_path = pages_dir / filename
+    if not source_path.exists() or not source_path.is_file():
+        raise WorkspaceError(f"Page '{item_id}' does not exist.")
+    rel_path = source_path.relative_to(workspace.path)
+    return Item(
+        id=item_id,
+        record=record_slug,
+        filename=filename,
+        rel_path=rel_path,
+    )
 
 
 def create_record_from_upload(

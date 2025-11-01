@@ -2,6 +2,16 @@ const DEFAULT_HEADERS = {
   Accept: 'application/json',
 }
 
+function encodeItemId(itemId) {
+  if (!itemId) {
+    return ''
+  }
+  return itemId
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+}
+
 async function fetchJSON(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -97,6 +107,20 @@ export async function getItems({
   return fetchJSON(`/api/v1/items?${params.toString()}`, { signal })
 }
 
+export async function getItemAnnotations(itemId) {
+  return fetchJSON(`/api/v1/items/${encodeItemId(itemId)}/annotations`)
+}
+
+export async function updateItemAnnotations(itemId, payload) {
+  return fetchJSON(`/api/v1/items/${encodeItemId(itemId)}/annotations`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+}
+
 export const api = {
   getWorkspaces,
   getCurrentWorkspace,
@@ -105,4 +129,6 @@ export const api = {
   getRecords,
   createRecord,
   getRecord,
+  getItemAnnotations,
+  updateItemAnnotations,
 }

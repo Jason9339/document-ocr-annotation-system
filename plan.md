@@ -147,9 +147,13 @@ repo/
 **目標**：最小可用的框編輯與文字輸入。
 **主要工作**：
 
-* 後端：`PUT /api/v1/items/{id}/annotations`（覆寫/增量兩種模式）。
-* 前端：Konva 畫布（新增/刪除/拖曳/縮放）、屬性面板、Autosave 去抖動。
-  **驗收**：手動建立框與文字後落檔成功，重整仍存在。
+* 後端：`PUT /api/v1/items/{id}/annotations`。
+* 前端：Konva 畫布（新增/刪除/拖曳/縮放）、屬性面板、Autosave 去抖動；整合新 UI 框架（sidebar、breadcrumb、Lucide icon）。
+* Workspace / Records 頁面導入現代化設計，包含全寬工作區卡片、表格樣式、進度與狀態標籤。
+* `.gitignore` 更新以排除 workspace 生成資料與測試輸出。
+  **驗收**：手動建立框與文字後落檔成功、重整仍存在；Workspace/Records 介面符合設計稿，sidebar 固定且具麵包屑與 API 狀態提示。
+
+UI 設計參考 `generated-page.html`，導入藍灰色配色、共用排版（2rem padding、固定 sidebar），並已完成 `lucide-react` 依賴安裝與 React Portal 麵包屑實作；工作區卡片最小寬度 320px，Records 表格改為顯示完成度與狀態。
 
 ### M4｜Metadata 表單與批次套用
 
