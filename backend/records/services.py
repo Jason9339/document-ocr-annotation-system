@@ -21,6 +21,36 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 RECORD_METADATA_FILENAME = "metadata.json"
 LABELS_DIRNAME = "labels"
 ANNOTATIONS_SCHEMA_VERSION = 1
+METADATA_TEMPLATES_DIRNAME = "metadata_templates"
+
+DEFAULT_METADATA_TEMPLATE = {
+    "id": "default",
+    "label": "預設欄位",
+    "description": "基本書籍欄位，包括作者、出版年份與分類。",
+    "fields": [
+        {
+            "key": "author",
+            "label": "作者",
+            "type": "text",
+            "required": False,
+            "default": "",
+        },
+        {
+            "key": "publication_year",
+            "label": "出版年份",
+            "type": "text",
+            "required": False,
+            "default": "",
+        },
+        {
+            "key": "category",
+            "label": "分類",
+            "type": "text",
+            "required": False,
+            "default": "",
+        },
+    ],
+}
 
 
 @dataclass(frozen=True)
@@ -129,6 +159,105 @@ def _record_metadata_path(record_path: Path) -> Path:
     return record_path / RECORD_METADATA_FILENAME
 
 
+def _metadata_templates_root(workspace: Workspace) -> Path:
+    return workspace.path / METADATA_TEMPLATES_DIRNAME
+
+
+def _sanitize_metadata_template(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not isinstance(data, dict):
+        return None
+    template_id = data.get("id")
+    if not isinstance(template_id, str) or not template_id.strip():
+        return None
+    template_id = template_id.strip()
+    label = data.get("label")
+    if not isinstance(label, str) or not label.strip():
+        label = template_id
+    description = data.get("description")
+    if description is not None and not isinstance(description, str):
+        description = None
+
+    fields_payload = data.get("fields") or []
+    if not isinstance(fields_payload, list):
+        fields_payload = []
+
+    fields: List[Dict[str, Any]] = []
+    for raw_field in fields_payload:
+        if not isinstance(raw_field, dict):
+            continue
+        key = raw_field.get("key")
+        if not isinstance(key, str) or not key.strip():
+            continue
+        key = key.strip()
+        field_label = raw_field.get("label")
+        if not isinstance(field_label, str) or not field_label.strip():
+            field_label = key
+        field_type = raw_field.get("type")
+        if not isinstance(field_type, str) or not field_type.strip():
+            field_type = "text"
+        default_value = raw_field.get("default")
+        if default_value is None:
+            default_value = ""
+        required = bool(raw_field.get("required"))
+        fields.append(
+            {
+                "key": key,
+                "label": field_label,
+                "type": field_type,
+                "required": required,
+                "default": "" if default_value is None else str(default_value),
+            }
+        )
+
+    return {
+        "id": template_id,
+        "label": label,
+        **({"description": description} if description else {}),
+        "fields": fields,
+    }
+
+
+def list_metadata_templates(workspace: Workspace) -> List[Dict[str, Any]]:
+    templates: List[Dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    templates_root = _metadata_templates_root(workspace)
+    if templates_root.exists():
+        for path in sorted(templates_root.glob("*.json")):
+            try:
+                with path.open("r", encoding="utf-8") as fh:
+                    raw = json.load(fh)
+            except (OSError, json.JSONDecodeError):
+                continue
+            template = _sanitize_metadata_template(raw)
+            if not template:
+                continue
+            if template["id"] in seen_ids:
+                continue
+            seen_ids.add(template["id"])
+            templates.append(template)
+
+    default_template = _sanitize_metadata_template(DEFAULT_METADATA_TEMPLATE)
+    if default_template and default_template["id"] not in seen_ids:
+        templates.append(default_template)
+
+    return templates
+
+
+def _normalize_metadata_values(values: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    if not isinstance(values, dict):
+        return {}
+    normalized: Dict[str, str] = {}
+    for key, value in values.items():
+        if not isinstance(key, str):
+            continue
+        key = key.strip()
+        if not key:
+            continue
+        normalized[key] = "" if value is None else str(value)
+    return normalized
+
+
 def _parse_item_id(item_id: str) -> Tuple[str, str]:
     parts = item_id.split("/", 1)
     if len(parts) != 2 or not parts[0] or not parts[1]:
@@ -190,11 +319,13 @@ def load_annotations(workspace: Workspace, item_id: str) -> Dict[str, Any]:
     record_slug, filename = _parse_item_id(item_id)
     sidecar_path = _annotation_payload_path(workspace, record_slug, filename)
     if not sidecar_path.exists():
-        return {
+        default_payload = {
             "schema_version": ANNOTATIONS_SCHEMA_VERSION,
             "annotations": [],
+            "metadata": {},
             "updated_at": timezone.now().isoformat(),
         }
+        return default_payload
     try:
         with sidecar_path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
@@ -202,17 +333,23 @@ def load_annotations(workspace: Workspace, item_id: str) -> Dict[str, Any]:
         return {
             "schema_version": ANNOTATIONS_SCHEMA_VERSION,
             "annotations": [],
+            "metadata": {},
             "updated_at": timezone.now().isoformat(),
         }
     if not isinstance(payload, dict):
         return {
             "schema_version": ANNOTATIONS_SCHEMA_VERSION,
             "annotations": [],
+            "metadata": {},
             "updated_at": timezone.now().isoformat(),
         }
     payload.setdefault("schema_version", ANNOTATIONS_SCHEMA_VERSION)
     payload.setdefault("annotations", [])
     payload["updated_at"] = payload.get("updated_at") or timezone.now().isoformat()
+    metadata_values = payload.get("metadata")
+    payload["metadata"] = _normalize_metadata_values(
+        metadata_values if isinstance(metadata_values, dict) else {}
+    )
     return payload
 
 
@@ -221,9 +358,35 @@ def save_annotations(workspace: Workspace, item_id: str, data: Dict[str, Any]) -
     sidecar_path = _annotation_payload_path(workspace, record_slug, filename)
     sidecar_path.parent.mkdir(parents=True, exist_ok=True)
 
+    preserve_existing_metadata = "metadata" not in data
+    existing_payload: Optional[Dict[str, Any]] = None
+    if preserve_existing_metadata:
+        existing_payload = load_annotations(workspace, item_id)
+
+    if isinstance(data.get("annotations"), list):
+        annotations = data["annotations"]
+    elif existing_payload is not None:
+        annotations = existing_payload.get("annotations", [])
+    else:
+        annotations = []
+
+    schema_version = data.get("schema_version") or (
+        existing_payload.get("schema_version") if existing_payload else None
+    )
+    if not isinstance(schema_version, int):
+        schema_version = ANNOTATIONS_SCHEMA_VERSION
+
+    if "metadata" in data and isinstance(data["metadata"], dict):
+        metadata_values = _normalize_metadata_values(data["metadata"])
+    elif existing_payload is not None:
+        metadata_values = _normalize_metadata_values(existing_payload.get("metadata"))
+    else:
+        metadata_values = {}
+
     payload = {
-        "schema_version": data.get("schema_version") or ANNOTATIONS_SCHEMA_VERSION,
-        "annotations": data.get("annotations") or [],
+        "schema_version": schema_version,
+        "annotations": annotations,
+        "metadata": metadata_values,
         "updated_at": timezone.now().isoformat(),
     }
 
@@ -278,6 +441,53 @@ def get_record(workspace: Workspace, slug: str) -> Record:
     )
 
 
+def get_record_metadata_payload(workspace: Workspace, slug: str) -> Dict[str, Any]:
+    record_path = _records_root(workspace) / slug
+    if not record_path.exists() or not record_path.is_dir():
+        raise RecordError(f"Record '{slug}' does not exist.")
+    metadata = _load_record_metadata(record_path)
+    metadata_block = metadata.get("metadata")
+    if not isinstance(metadata_block, dict):
+        metadata_block = {}
+    template = metadata_block.get("template")
+    if not isinstance(template, str) or not template.strip():
+        template = None
+    values = metadata_block.get("values") if isinstance(metadata_block.get("values"), dict) else {}
+    normalized_values = _normalize_metadata_values(values)
+    updated_at = metadata_block.get("updated_at")
+    if not isinstance(updated_at, str):
+        updated_at = None
+    payload: Dict[str, Any] = {
+        "template": template,
+        "values": normalized_values,
+    }
+    if updated_at:
+        payload["updated_at"] = updated_at
+    return payload
+
+
+def update_record_metadata(
+    workspace: Workspace,
+    slug: str,
+    *,
+    template: Optional[str],
+    values: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    record_path = _records_root(workspace) / slug
+    if not record_path.exists() or not record_path.is_dir():
+        raise RecordError(f"Record '{slug}' does not exist.")
+    metadata = _load_record_metadata(record_path)
+    normalized_values = _normalize_metadata_values(values)
+    metadata_block: Dict[str, Any] = {
+        "template": template or None,
+        "values": normalized_values,
+        "updated_at": timezone.now().isoformat(),
+    }
+    metadata["metadata"] = metadata_block
+    _write_record_metadata(record_path, metadata)
+    return metadata_block
+
+
 def _write_record_metadata(record_path: Path, payload: Dict[str, Any]) -> None:
     metadata_path = _record_metadata_path(record_path)
     with metadata_path.open("w", encoding="utf-8") as fh:
@@ -301,6 +511,66 @@ def get_item(workspace: Workspace, item_id: str) -> Item:
         filename=filename,
         rel_path=rel_path,
     )
+
+
+def get_item_metadata(workspace: Workspace, item_id: str) -> Dict[str, str]:
+    payload = load_annotations(workspace, item_id)
+    metadata_values = payload.get("metadata")
+    return _normalize_metadata_values(metadata_values if isinstance(metadata_values, dict) else {})
+
+
+def update_item_metadata(
+    workspace: Workspace,
+    item_id: str,
+    metadata: Optional[Dict[str, Any]],
+    *,
+    merge: bool,
+) -> Dict[str, str]:
+    # Ensure the item exists.
+    get_item(workspace, item_id)
+    existing_payload = load_annotations(workspace, item_id)
+    existing_metadata = existing_payload.get("metadata")
+    existing_metadata = _normalize_metadata_values(
+        existing_metadata if isinstance(existing_metadata, dict) else {}
+    )
+    incoming = _normalize_metadata_values(metadata)
+    if merge:
+        merged = existing_metadata.copy()
+        merged.update(incoming)
+        metadata_to_save = merged
+    else:
+        metadata_to_save = incoming
+    existing_payload["metadata"] = metadata_to_save
+    saved_payload = save_annotations(workspace, item_id, existing_payload)
+    saved_metadata = saved_payload.get("metadata")
+    return _normalize_metadata_values(saved_metadata if isinstance(saved_metadata, dict) else {})
+
+
+def batch_update_items_metadata(
+    workspace: Workspace,
+    item_ids: Sequence[str],
+    metadata: Optional[Dict[str, Any]],
+    *,
+    merge: bool,
+) -> Dict[str, Any]:
+    results = {
+        "updated": [],
+        "failed": [],
+    }
+    for item_id in item_ids:
+        try:
+            updated = update_item_metadata(
+                workspace,
+                item_id,
+                metadata,
+                merge=merge,
+            )
+            results["updated"].append({"item": item_id, "metadata": updated})
+        except WorkspaceError as exc:
+            results["failed"].append({"item": item_id, "error": str(exc)})
+    results["updated_count"] = len(results["updated"])
+    results["failed_count"] = len(results["failed"])
+    return results
 
 
 def create_record_from_upload(

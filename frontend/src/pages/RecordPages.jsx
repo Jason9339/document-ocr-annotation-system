@@ -1,7 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Search, ArrowLeft, ChevronLeft, ChevronRight, FileImage, ChevronRight as BreadcrumbSeparator } from 'lucide-react'
+import {
+  Search,
+  ArrowLeft,
+  ChevronRight as BreadcrumbSeparator,
+  Plus,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+} from 'lucide-react'
 import { api } from '../lib/api.js'
+import MetadataEntryRow from '../components/MetadataEntryRow.jsx'
+import {
+  buildEntriesFromValues,
+  createMetadataEntry,
+  ensureEntriesNotEmpty,
+  resolveEntries,
+} from '../utils/metadata.js'
 
 const PAGE_SIZE = 12
 
@@ -44,6 +59,18 @@ export default function RecordPagesPage({
   const [sort, setSort] = useState('record')
   const [searchTerm, setSearchTerm] = useState('')
   const [query, setQuery] = useState('')
+  const [selectedItems, setSelectedItems] = useState(() => new Set())
+  const [batchEntries, setBatchEntries] = useState([createMetadataEntry()])
+  const [batchMode, setBatchMode] = useState('merge')
+  const [batchStatus, setBatchStatus] = useState({
+    state: 'idle',
+    message: null,
+    error: null,
+  })
+  const [batchSaving, setBatchSaving] = useState(false)
+  const [batchLoadingMetadata, setBatchLoadingMetadata] = useState(false)
+  const selectedItemsArray = useMemo(() => Array.from(selectedItems), [selectedItems])
+  const selectedCount = selectedItemsArray.length
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -144,6 +171,38 @@ export default function RecordPagesPage({
     }
     return Math.max(1, Math.ceil(pagination.total / pagination.page_size))
   }, [pagination.total, pagination.page_size])
+  const paginationPages = useMemo(() => {
+    if (totalPages <= 1) {
+      return []
+    }
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1)
+    }
+    const pages = new Set([1, totalPages, page, page - 1, page + 1])
+    if (page <= 4) {
+      for (let i = 2; i <= 5; i += 1) {
+        pages.add(i)
+      }
+    }
+    if (page >= totalPages - 3) {
+      for (let i = totalPages - 4; i <= totalPages - 1; i += 1) {
+        pages.add(i)
+      }
+    }
+    const sorted = Array.from(pages)
+      .filter((value) => value >= 1 && value <= totalPages)
+      .sort((a, b) => a - b)
+    const result = []
+    let previous = 0
+    for (const value of sorted) {
+      if (previous && value - previous > 1) {
+        result.push('ellipsis')
+      }
+      result.push(value)
+      previous = value
+    }
+    return result
+  }, [page, totalPages])
 
   if (workspaceState.loading) {
     return (
@@ -198,6 +257,130 @@ export default function RecordPagesPage({
 
   const handleOpenItem = (item) => {
     onNavigate(`/items/${encodeURIComponent(item.id)}`)
+  }
+
+  const toggleItemSelection = (itemId) => {
+    setSelectedItems((prev) => {
+      const next = new Set(prev)
+      if (next.has(itemId)) {
+        next.delete(itemId)
+      } else {
+        next.add(itemId)
+      }
+      return next
+    })
+  }
+
+  const clearSelectedItems = () => {
+    setSelectedItems(new Set())
+    setBatchStatus({ state: 'idle', message: null, error: null })
+    setBatchEntries([createMetadataEntry()])
+  }
+
+  const handleAddBatchEntry = () => {
+    setBatchEntries((entries) => [...entries, createMetadataEntry()])
+    setBatchStatus({ state: 'dirty', message: null, error: null })
+  }
+
+  const handleRemoveBatchEntry = (id) => {
+    setBatchEntries((entries) => ensureEntriesNotEmpty(entries.filter((entry) => entry.id !== id)))
+    setBatchStatus({ state: 'dirty', message: null, error: null })
+  }
+
+  const handleBatchEntryKeyChange = (id, value) => {
+    setBatchEntries((entries) =>
+      entries.map((entry) => (entry.id === id ? { ...entry, key: value } : entry)),
+    )
+    setBatchStatus({ state: 'dirty', message: null, error: null })
+  }
+
+  const handleBatchEntryValueChange = (id, value) => {
+    setBatchEntries((entries) =>
+      entries.map((entry) => (entry.id === id ? { ...entry, value } : entry)),
+    )
+    setBatchStatus({ state: 'dirty', message: null, error: null })
+  }
+
+  const handleLoadSelectedMetadata = async () => {
+    if (selectedCount !== 1) {
+      return
+    }
+    const [itemId] = selectedItemsArray
+    setBatchLoadingMetadata(true)
+    setBatchStatus({ state: 'loading', message: null, error: null })
+    try {
+      const payload = await api.getItemMetadata(itemId)
+      const nextValues =
+        payload && payload.metadata && typeof payload.metadata === 'object'
+          ? payload.metadata
+          : {}
+      setBatchEntries(buildEntriesFromValues(nextValues, null))
+      setBatchStatus({
+        state: 'info',
+        message: '已載入目前欄位內容，可調整後套用。',
+        error: null,
+      })
+    } catch (error) {
+      setBatchStatus({
+        state: 'error',
+        message: null,
+        error: error.message ?? '載入頁面 Metadata 失敗。',
+      })
+    } finally {
+      setBatchLoadingMetadata(false)
+    }
+  }
+
+  const handleApplyBatchMetadata = async () => {
+    if (!selectedCount) {
+      return
+    }
+    const { values, errors } = resolveEntries(batchEntries, { strict: true })
+    if (errors.length) {
+      setBatchStatus({
+        state: 'error',
+        message: null,
+        error: errors.join(' / '),
+      })
+      return
+    }
+    setBatchSaving(true)
+    setBatchStatus({ state: 'saving', message: null, error: null })
+    try {
+      const payload = await api.batchUpdateItemMetadata({
+        items: selectedItemsArray,
+        metadata: values,
+        mode: batchMode,
+      })
+      const updatedCount =
+        typeof payload.updated_count === 'number'
+          ? payload.updated_count
+          : Array.isArray(payload.updated)
+            ? payload.updated.length
+            : selectedCount
+      const failedCount =
+        typeof payload.failed_count === 'number'
+          ? payload.failed_count
+          : Array.isArray(payload.failed)
+            ? payload.failed.length
+            : 0
+      const hasFailure = failedCount > 0
+      const baseMessage = `已套用至 ${updatedCount} 頁。`
+      const failureMessage = hasFailure ? ` 有 ${failedCount} 頁更新失敗。` : ''
+      setBatchStatus({
+        state: hasFailure ? 'warning' : 'success',
+        message: `${baseMessage}${failureMessage}`,
+        error: hasFailure ? '部分頁面未更新，請稍後重試或檢查檔案。' : null,
+      })
+    } catch (error) {
+      setBatchStatus({
+        state: 'error',
+        message: null,
+        error: error.message ?? '批次更新失敗。',
+      })
+    } finally {
+      setBatchSaving(false)
+    }
   }
 
   const recordTitle =
@@ -270,14 +453,14 @@ export default function RecordPagesPage({
         <div className="record-pages__controls">
           <label className="input input--search">
             <span>搜尋頁面</span>
-            <div style={{ position: 'relative' }}>
-              <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
+            <div className="input__control input__control--search">
+              <Search size={16} className="input__icon" />
               <input
                 type="search"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
                 placeholder="輸入檔名或關鍵字"
-                style={{ paddingLeft: '2.5rem' }}
+                className="input__control-field"
               />
             </div>
           </label>
@@ -291,64 +474,220 @@ export default function RecordPagesPage({
         </div>
       </section>
 
+      {selectedCount > 0 ? (
+        <section className="batch-metadata-panel">
+          <div className="batch-metadata-panel__header">
+            <div>
+              <h3>批次套用 Metadata</h3>
+              <p>已選取 {selectedCount} 頁。</p>
+            </div>
+            <div className="batch-metadata-panel__controls">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={handleAddBatchEntry}
+                disabled={batchSaving}
+              >
+                <Plus size={16} />
+                新增欄位
+              </button>
+              {selectedCount === 1 ? (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={handleLoadSelectedMetadata}
+                  disabled={batchSaving || batchLoadingMetadata}
+                >
+                  {batchLoadingMetadata ? <Loader2 size={16} className="spin" /> : <Search size={16} />}
+                  載入目前欄位
+                </button>
+              ) : null}
+              <button type="button" className="ghost-button" onClick={clearSelectedItems} disabled={batchSaving}>
+                清除選取
+              </button>
+            </div>
+          </div>
+          <div className="batch-metadata-panel__mode">
+            <label>
+              <input
+                type="radio"
+                name="batch-mode"
+                value="merge"
+                checked={batchMode === 'merge'}
+                onChange={(event) => setBatchMode(event.target.value)}
+                disabled={batchSaving}
+              />
+              合併（保留既有值）
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="batch-mode"
+                value="replace"
+                checked={batchMode === 'replace'}
+                onChange={(event) => setBatchMode(event.target.value)}
+                disabled={batchSaving}
+              />
+              取代（完全覆寫）
+            </label>
+          </div>
+          <div className="metadata-editor metadata-editor--compact">
+            {batchEntries.map((entry) => (
+              <MetadataEntryRow
+                key={entry.id}
+                entry={entry}
+                onChangeKey={handleBatchEntryKeyChange}
+                onChangeValue={handleBatchEntryValueChange}
+                onRemove={handleRemoveBatchEntry}
+                disabled={batchSaving}
+              />
+            ))}
+          </div>
+        {batchStatus.state === 'loading' ? (
+          <div className="metadata-status metadata-status--info">
+            <Loader2 size={16} className="spin" />
+            <span>載入中…</span>
+          </div>
+        ) : null}
+        {batchStatus.state === 'saving' ? (
+          <div className="metadata-status metadata-status--info">
+            <Loader2 size={16} className="spin" />
+            <span>套用中，請稍候…</span>
+          </div>
+        ) : null}
+        {batchStatus.error ? (
+          <div className="metadata-status metadata-status--error">
+            <AlertCircle size={16} />
+            <span>{batchStatus.error}</span>
+          </div>
+        ) : null}
+        {batchStatus.message ? (
+          <div
+            className={`metadata-status ${
+              batchStatus.state === 'success'
+                ? 'metadata-status--success'
+              : batchStatus.state === 'warning'
+                ? 'metadata-status--warning'
+                : 'metadata-status--info'
+            }`}
+          >
+            {batchStatus.state === 'success' ? (
+              <CheckCircle2 size={16} />
+            ) : batchStatus.state === 'warning' ? (
+              <AlertCircle size={16} />
+            ) : (
+              <AlertCircle size={16} />
+            )}
+            <span>{batchStatus.message}</span>
+          </div>
+        ) : null}
+        <div className="metadata-editor__actions">
+          <button
+            type="button"
+            className="primary-button"
+            onClick={handleApplyBatchMetadata}
+            disabled={batchSaving}
+          >
+            {batchSaving ? <Loader2 size={16} className="spin" /> : null}
+            {batchSaving ? '套用中…' : `套用至 ${selectedCount} 頁`}
+          </button>
+        </div>
+        </section>
+      ) : null}
+
       <div className="records-panel record-pages__panel">
         <div className="record-pages-grid">
           {loading && !items.length ? (
-            <div className="records-empty">Loading pages…</div>
+            <div className="records-empty">頁面載入中…</div>
           ) : null}
 
           {!loading && items.length === 0 ? (
-            <div className="records-empty">No pages matched your filters.</div>
+            <div className="records-empty">沒有符合條件的頁面。</div>
           ) : null}
 
-          {items.map((item) => (
-            <article key={item.id} className="record-card record-card--page">
-              <button
-                type="button"
-                className="record-card__image"
-                onClick={() => handleOpenItem(item)}
+          {items.map((item) => {
+            const isSelected = selectedItems.has(item.id)
+            return (
+              <article
+                key={item.id}
+                className={`record-card record-card--page${isSelected ? ' record-card--selected' : ''}`}
               >
-                <img src={item.thumbnail_url} alt={item.filename} loading="lazy" />
-              </button>
-              <div className="record-card__meta">
-                <span className="record-card__record">{item.record}</span>
-                <span className="record-card__filename">{item.filename}</span>
-                <a
-                  className="record-card__link"
-                  href={item.original_url}
-                  target="_blank"
-                  rel="noreferrer"
+                <div className="record-card__select">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleItemSelection(item.id)}
+                      aria-label={`選取 ${item.filename}`}
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  className="record-card__image"
+                  onClick={() => handleOpenItem(item)}
                 >
-                  Open original
-                </a>
-              </div>
-            </article>
-          ))}
+                  <img src={item.thumbnail_url} alt={item.filename} loading="lazy" />
+                </button>
+                <div className="record-card__meta">
+                  <span className="record-card__record">{item.record}</span>
+                  <span className="record-card__filename">{item.filename}</span>
+                  <a
+                    className="record-card__link"
+                    href={item.original_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    開啟原始檔
+                  </a>
+                </div>
+              </article>
+            )
+          })}
         </div>
       </div>
 
       <footer className="records-footer record-pages__footer">
-        <div className="pagination">
+        <div className="record-pages__pagination">
           <button
             type="button"
-            className="ghost-button"
+            className="record-pages__pagination-btn"
             onClick={() => setPage((value) => Math.max(1, value - 1))}
             disabled={page <= 1 || loading}
           >
-            <ChevronLeft size={16} />
-            上一頁
+            <span>上一頁</span>
           </button>
-          <span className="pagination__info">
-            第 {page} / {totalPages} 頁
-          </span>
+          {paginationPages.map((entry, index) =>
+            entry === 'ellipsis' ? (
+              // eslint-disable-next-line react/no-array-index-key
+              <span key={`ellipsis-${index}`} className="record-pages__pagination-ellipsis">
+                …
+              </span>
+            ) : (
+              <button
+                type="button"
+                key={`page-${entry}`}
+                className={`record-pages__pagination-btn record-pages__pagination-btn--page${
+                  entry === page ? ' record-pages__pagination-btn--active' : ''
+                }`}
+                onClick={() => {
+                  if (entry === page || loading) {
+                    return
+                  }
+                  setPage(entry)
+                }}
+              >
+                {entry}
+              </button>
+            ),
+          )}
           <button
             type="button"
-            className="ghost-button"
+            className="record-pages__pagination-btn"
             onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
             disabled={page >= totalPages || loading}
           >
-            下一頁
-            <ChevronRight size={16} />
+            <span>下一頁</span>
           </button>
         </div>
       </footer>

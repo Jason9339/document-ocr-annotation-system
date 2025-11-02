@@ -20,13 +20,16 @@ from annotations.views import health, enqueue_test, job_status
 from records.views import (
     available_workspaces,
     current_workspace,
+    item_annotations_view,
+    item_metadata_batch_view,
+    item_metadata_view,
     item_original,
     item_thumbnail,
     list_items_view,
     open_workspace,
     record_detail_view,
     records_root,
-    item_annotations_view,
+    record_metadata_view,
 )
 
 urlpatterns = [
@@ -45,8 +48,11 @@ urlpatterns = [
     path('api/v1/workspace/open', open_workspace),
     path('api/v1/records', records_root),
     path('api/v1/records/<str:record_slug>', record_detail_view),
+    path('api/v1/records/<str:record_slug>/metadata', record_metadata_view),
     path('api/v1/items', list_items_view),
     path('api/v1/items/thumbnail', item_thumbnail),
     path('api/v1/items/raw', item_original),
     path('api/v1/items/<path:item_id>/annotations', item_annotations_view),
+    path('api/v1/items/<path:item_id>/metadata', item_metadata_view),
+    path('api/v1/items/metadata/batch', item_metadata_batch_view),
 ]

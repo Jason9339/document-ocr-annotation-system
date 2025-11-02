@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Folder, BookOpen, FileText, Bell, Settings, User, Edit3 } from 'lucide-react'
+import { Folder, BookOpen, FileText, Bell, Settings, User, Edit3, LayoutTemplate } from 'lucide-react'
 import LoginPage from './pages/Login.jsx'
 import RecordsPage from './pages/Records.jsx'
 import RecordPagesPage from './pages/RecordPages.jsx'
 import RecordItemPage from './pages/RecordItem.jsx'
 import WorkspacesPage from './pages/Workspaces.jsx'
+import MetadataTemplatesPage from './pages/MetadataTemplates.jsx'
 import { api } from './lib/api.js'
 import './App.css'
 
 const routes = [
   { name: 'workspaces', pattern: /^\/workspaces$/, component: WorkspacesPage },
+  { name: 'templates', pattern: /^\/templates$/, component: MetadataTemplatesPage },
   { name: 'login', pattern: /^\/login$/, component: LoginPage },
   { name: 'records', pattern: /^\/records$/, component: RecordsPage },
   {
@@ -294,6 +296,10 @@ function App() {
             <button type="button" className="sidebar__footer-btn">
               <Bell size={20} />
               <span>通知</span>
+            </button>
+            <button type="button" className="sidebar__footer-btn" onClick={() => navigate('/templates')}>
+              <LayoutTemplate size={20} />
+              <span>Metadata 模板</span>
             </button>
             <button type="button" className="sidebar__footer-btn">
               <Settings size={20} />

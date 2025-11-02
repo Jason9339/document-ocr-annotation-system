@@ -121,6 +121,44 @@ export async function updateItemAnnotations(itemId, payload) {
   })
 }
 
+export async function getRecordMetadata(slug) {
+  return fetchJSON(`/api/v1/records/${encodeURIComponent(slug)}/metadata`)
+}
+
+export async function updateRecordMetadata(slug, payload) {
+  return fetchJSON(`/api/v1/records/${encodeURIComponent(slug)}/metadata`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function getItemMetadata(itemId) {
+  return fetchJSON(`/api/v1/items/${encodeItemId(itemId)}/metadata`)
+}
+
+export async function updateItemMetadata(itemId, payload) {
+  return fetchJSON(`/api/v1/items/${encodeItemId(itemId)}/metadata`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function batchUpdateItemMetadata(payload) {
+  return fetchJSON('/api/v1/items/metadata/batch', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+}
+
 export const api = {
   getWorkspaces,
   getCurrentWorkspace,
@@ -131,4 +169,9 @@ export const api = {
   getRecord,
   getItemAnnotations,
   updateItemAnnotations,
+  getRecordMetadata,
+  updateRecordMetadata,
+  getItemMetadata,
+  updateItemMetadata,
+  batchUpdateItemMetadata,
 }

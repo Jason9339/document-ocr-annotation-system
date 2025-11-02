@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Search, Upload, RefreshCw, BookOpen, ArrowRight, ChevronRight } from 'lucide-react'
+import { Search, Upload, RefreshCw, BookOpen, ChevronRight, Edit } from 'lucide-react'
+import RecordMetadataModal from '../components/RecordMetadataModal.jsx'
 import { api } from '../lib/api.js'
 
 function formatDate(value) {
@@ -26,6 +27,14 @@ export default function RecordsPage({
   const [error, setError] = useState(null)
   const [refreshIndex, setRefreshIndex] = useState(0)
   const [searchTerm, setSearchTerm] = useState('')
+  const [metadataModal, setMetadataModal] = useState({
+    isOpen: false,
+    recordSlug: null,
+    recordTitle: null,
+    metadata: {},
+    templates: [],
+  })
+  const [savingMetadata, setSavingMetadata] = useState(false)
 
   const fileInputRef = useRef(null)
   const [uploadFile, setUploadFile] = useState(null)
@@ -120,6 +129,48 @@ export default function RecordsPage({
     onNavigate(`/records/${encodeURIComponent(slug)}`)
   }
 
+  const handleOpenMetadata = async (record) => {
+    try {
+      const result = await api.getRecordMetadata(record.slug)
+      setMetadataModal({
+        isOpen: true,
+        recordSlug: record.slug,
+        recordTitle: record.title || record.slug,
+        metadata: result.metadata || {},
+        templates: result.templates || [],
+      })
+    } catch (err) {
+      console.error('Failed to load metadata:', err)
+      setMetadataModal({
+        isOpen: true,
+        recordSlug: record.slug,
+        recordTitle: record.title || record.slug,
+        metadata: {},
+        templates: [],
+      })
+    }
+  }
+
+  const handleSaveMetadata = async (data) => {
+    setSavingMetadata(true)
+    try {
+      await api.updateRecordMetadata(metadataModal.recordSlug, data)
+      setMetadataModal((prev) => ({ ...prev, isOpen: false }))
+      setRefreshIndex((value) => value + 1)
+    } catch (err) {
+      console.error('Failed to save metadata:', err)
+      alert('儲存失敗：' + (err.message || '請稍後再試'))
+    } finally {
+      setSavingMetadata(false)
+    }
+  }
+
+  const handleCloseMetadata = () => {
+    if (!savingMetadata) {
+      setMetadataModal((prev) => ({ ...prev, isOpen: false }))
+    }
+  }
+
   const handleRefreshRecords = () => {
     setRefreshIndex((value) => value + 1)
   }
@@ -190,12 +241,12 @@ export default function RecordsPage({
         <div className="page-header__actions">
           <button
             type="button"
-            className="ghost-button"
+            className="text-button"
             onClick={handleRefreshRecords}
             disabled={loading}
           >
             <RefreshCw size={16} />
-            重新整理
+            <span>重新整理</span>
           </button>
           <button
             type="button"
@@ -351,14 +402,24 @@ export default function RecordsPage({
                     </td>
                     <td className="records-table__date">{formatDate(record.created_at)}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="ghost-button"
-                        onClick={() => handleOpenRecord(record.slug)}
-                      >
-                        開啟
-                        <ArrowRight size={14} />
-                      </button>
+                      <div className="records-table__actions">
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => handleOpenMetadata(record)}
+                        >
+                          <Edit size={16} />
+                          <span>編輯</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => handleOpenRecord(record.slug)}
+                        >
+                          <BookOpen size={16} />
+                          <span>檢視</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -367,6 +428,18 @@ export default function RecordsPage({
           </div>
         ) : null}
       </div>
+
+      <RecordMetadataModal
+        isOpen={metadataModal.isOpen}
+        onClose={handleCloseMetadata}
+        recordSlug={metadataModal.recordSlug}
+        recordTitle={metadataModal.recordTitle}
+        metadata={metadataModal.metadata}
+        templates={metadataModal.templates}
+        onSave={handleSaveMetadata}
+        saving={savingMetadata}
+        onNavigateToTemplates={() => onNavigate('/templates')}
+      />
     </section>
   )
 }

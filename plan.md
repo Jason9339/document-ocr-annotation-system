@@ -155,14 +155,37 @@ repo/
 
 UI 設計參考 `generated-page.html`，導入藍灰色配色、共用排版（2rem padding、固定 sidebar），並已完成 `lucide-react` 依賴安裝與 React Portal 麵包屑實作；工作區卡片最小寬度 320px，Records 表格改為顯示完成度與狀態。
 
-### M4｜Metadata 表單與批次套用
+### M4｜Metadata 表單與批次套用 ✅
 
-**目標**：完成頁級 Metadata 編輯與批次操作。
+**目標**：完成 Metadata 編輯與批次操作。
 **主要工作**：
 
-* 後端：`PUT /api/v1/items/{id}/metadata`、`PUT /api/v1/items/metadata/batch`。
-* 前端：可配置欄位表單、勾選多頁批次寫入。
-  **驗收**：多選 10+ 頁批次套用成功且正確落檔。
+* 資料結構：每個 record 維護 `metadata.json`，以 key-value 形式儲存；支援預設模板（`metadata_templates/*.json`）與自訂欄位，採 JSON Schema 驗證。
+* 後端 API：
+  * `GET /api/v1/records/:slug/metadata` 讀取 record metadata 與可用模板。
+  * `PUT /api/v1/records/:slug/metadata` 更新單一 record metadata（覆寫或部分更新）。
+  * `PUT /api/v1/items/{id}/metadata` 更新單一頁面 metadata。
+  * `PUT /api/v1/items/metadata/batch` 針對多頁套用多組鍵值，支援 merge / replace 模式。
+* 後端服務：擴充 `records.services` 封裝 metadata 載入/儲存，提供模板 fallback 與欄位驗證；新增單元測試覆蓋成功與錯誤情境。
+* 前端：
+  * **Records 頁面**：新增 RecordMetadataModal 彈出視窗，每筆書籍資料旁設有「編輯」按鈕，點擊後開啟 modal 進行 metadata 編輯；支援模板選擇與動態欄位產生。
+  * **RecordPages 頁面**：採用 inline metadata 編輯器，提供 Record 層級 metadata 管理與批次頁面 metadata 更新；支援合併/取代模式、頁面複選、單頁 metadata 載入。
+  * **MetadataTemplates 頁面**：模板管理頁面，grid layout 展示可用模板、搜尋與過濾功能；側邊欄新增「Metadata 模板」導航按鈕。
+  * **RecordMetadataModal 元件**：可重用的 modal 元件，整合模板選擇、動態表單欄位、儲存/取消操作、loading 狀態顯示。
+  * UI 延續 M3 設計語系（sidebar、breadcrumb、狀態標籤），modal 樣式符合 `generated-page_2.html` 設計規範。
+* 驗收：單頁編輯與批次套用皆能落檔，重新整理或重新進入頁面後資料一致；模板切換可立即反映欄位；錯誤訊息（缺少必要欄位、驗證失敗）清楚顯示；前後端服務運行正常，API 端點正確回應 templates 與 metadata 資料。
+
+**已完成項目**：
+- ✅ Backend metadata API endpoints (`records/views.py`, `records/services.py`)
+- ✅ Frontend metadata modal component (`RecordMetadataModal.jsx`)
+- ✅ Records page integration with metadata editing
+- ✅ RecordPages inline metadata editor with batch update
+- ✅ MetadataTemplates management page
+- ✅ Modal CSS styling matching design specifications
+- ✅ API client functions (`api.js`)
+- ✅ Sidebar navigation integration
+- ✅ Docker environment verified and running
+
 
 ### M5｜單頁 OCR（同步）與模型設定
 

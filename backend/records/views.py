@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import PurePosixPath
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from django.http import FileResponse, Http404, HttpResponseBadRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -12,16 +12,22 @@ from urllib.parse import quote
 from .services import (
     RecordError,
     WorkspaceError,
+    batch_update_items_metadata,
     create_record_from_upload,
     filter_items,
     get_active_workspace,
     get_item,
+    get_item_metadata,
     get_record,
+    get_record_metadata_payload,
     iter_items,
+    list_metadata_templates,
     list_records,
     list_workspaces,
     load_annotations,
     paginate_items,
+    update_item_metadata,
+    update_record_metadata,
     save_annotations,
     set_active_workspace,
 )
@@ -299,3 +305,185 @@ def item_annotations_view(request, item_id: str):
 
     saved = save_annotations(workspace, item_id, data)
     return JsonResponse({"ok": True, **saved})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "PUT"])
+def record_metadata_view(request, record_slug: str):
+    try:
+        workspace = _active_workspace_or_400()
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    try:
+        # 確認 record 存在
+        get_record(workspace, record_slug)
+    except RecordError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+
+    if request.method == "GET":
+        metadata_payload = get_record_metadata_payload(workspace, record_slug)
+        templates = list_metadata_templates(workspace)
+        return JsonResponse(
+            {
+                "ok": True,
+                "metadata": metadata_payload,
+                "templates": templates,
+            }
+        )
+
+    try:
+        data = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON payload.")
+
+    if not isinstance(data, dict):
+        return HttpResponseBadRequest("Payload must be a JSON object.")
+
+    template_value = data.get("template")
+    if template_value is not None and not isinstance(template_value, str):
+        return HttpResponseBadRequest("'template' must be a string or null.")
+    values = data.get("values")
+    if values is None:
+        values = data.get("metadata")
+    if values is None:
+        values = {}
+    if not isinstance(values, dict):
+        return HttpResponseBadRequest("'values' must be a JSON object.")
+
+    updated = update_record_metadata(
+        workspace,
+        record_slug,
+        template=template_value,
+        values=values,
+    )
+    templates = list_metadata_templates(workspace)
+    return JsonResponse(
+        {
+            "ok": True,
+            "metadata": updated,
+            "templates": templates,
+        }
+    )
+
+
+@csrf_exempt
+@require_http_methods(["GET", "PUT"])
+def item_metadata_view(request, item_id: str):
+    try:
+        workspace = _active_workspace_or_400()
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    try:
+        get_item(workspace, item_id)
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+
+    if request.method == "GET":
+        metadata_payload = get_item_metadata(workspace, item_id)
+        return JsonResponse({"ok": True, "metadata": metadata_payload})
+
+    try:
+        data = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON payload.")
+
+    if not isinstance(data, dict):
+        return HttpResponseBadRequest("Payload must be a JSON object.")
+
+    metadata_body = data.get("metadata")
+    if metadata_body is None:
+        metadata_body = data.get("values")
+    if metadata_body is None:
+        metadata_body = {}
+    if not isinstance(metadata_body, dict):
+        return HttpResponseBadRequest("'metadata' must be a JSON object.")
+
+    mode = data.get("mode") or "merge"
+    merge = True
+    if isinstance(mode, str):
+        merge = mode.lower() != "replace"
+    elif isinstance(mode, bool):
+        merge = mode
+
+    updated = update_item_metadata(
+        workspace,
+        item_id,
+        metadata_body,
+        merge=merge,
+    )
+    return JsonResponse({"ok": True, "metadata": updated, "mode": "merge" if merge else "replace"})
+
+
+@csrf_exempt
+@require_http_methods(["PUT"])
+def item_metadata_batch_view(request):
+    try:
+        workspace = _active_workspace_or_400()
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    try:
+        data = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON payload.")
+
+    if not isinstance(data, dict):
+        return HttpResponseBadRequest("Payload must be a JSON object.")
+
+    items_payload = data.get("items")
+    if not isinstance(items_payload, list) or not items_payload:
+        return HttpResponseBadRequest("'items' must be a non-empty array.")
+
+    record_slug = data.get("record")
+    if record_slug is not None and not isinstance(record_slug, str):
+        return HttpResponseBadRequest("'record' must be a string when provided.")
+
+    normalized_items: List[str] = []
+    for raw_item in items_payload:
+        if not isinstance(raw_item, str) or not raw_item.strip():
+            return HttpResponseBadRequest("Each item in 'items' must be a non-empty string.")
+        raw_item = raw_item.strip()
+        if "/" in raw_item:
+            normalized_items.append(raw_item)
+        else:
+            if not record_slug:
+                return HttpResponseBadRequest(
+                    "Item identifiers must include record slug (record/page) 或提供 'record' 欄位。"
+                )
+            normalized_items.append(f"{record_slug}/{raw_item}")
+
+    # 去除重複
+    normalized_items = list(dict.fromkeys(normalized_items))
+
+    metadata_body = data.get("metadata")
+    if metadata_body is None:
+        metadata_body = data.get("values")
+    if metadata_body is None:
+        metadata_body = {}
+    if not isinstance(metadata_body, dict):
+        return HttpResponseBadRequest("'metadata' must be a JSON object.")
+
+    mode = data.get("mode") or "merge"
+    merge = True
+    if isinstance(mode, str):
+        merge = mode.lower() != "replace"
+    elif isinstance(mode, bool):
+        merge = mode
+
+    result = batch_update_items_metadata(
+        workspace,
+        normalized_items,
+        metadata_body,
+        merge=merge,
+    )
+    status_code = 207 if result["failed"] else 200
+    return JsonResponse(
+        {
+            "ok": True,
+            "mode": "merge" if merge else "replace",
+            **result,
+        },
+        status=status_code,
+    )

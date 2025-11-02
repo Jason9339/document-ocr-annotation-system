@@ -1,6 +1,6 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Search, Plus, Folder, RefreshCw, ChevronRight } from 'lucide-react'
+import { Search, Plus, Folder, RefreshCw } from 'lucide-react'
 
 export default function WorkspacesPage({
   workspaceState,
