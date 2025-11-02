@@ -111,11 +111,19 @@ docker compose logs api
 # 只看前端日誌
 docker compose logs web
 
+# 只看 worker 日誌（OCR 背景任務）
+docker compose logs worker
+
 # 即時追蹤日誌（類似 tail -f）
 docker compose logs -f api
+docker compose logs -f worker
 
 # 只看最後 50 行
 docker compose logs --tail 50 api
+docker compose logs --tail 50 worker
+
+# 即時追蹤 + 限制行數
+docker compose logs --tail 20 --follow worker
 ```
 
 #### 5. 重啟特定服務
@@ -126,6 +134,12 @@ docker compose restart api
 
 # 重啟前端
 docker compose restart web
+
+# 重啟 worker（OCR 背景任務）
+docker compose restart worker
+
+# 重啟 Redis（任務佇列）
+docker compose restart redis
 ```
 
 #### 6. 重新 build image（當 Dockerfile 或 requirements.txt 改變時）
@@ -807,6 +821,212 @@ docker compose exec web npm install new-package
 4. **實作小功能**
    - 例如：新增「刪除 workspace」功能
    - 例如：新增「檔案上傳」功能
+
+---
+
+## OCR 背景任務 (PaddleOCR)
+
+### 架構說明
+
+本系統使用 **Redis Queue (RQ)** 來處理 OCR 背景任務：
+
+- **api**：Django API 服務，接收 OCR 請求並將任務加入佇列
+- **redis**：任務佇列，儲存待處理的 OCR 任務
+- **worker**：背景工作程序，從佇列中取出任務並執行 PaddleOCR
+
+### 如何檢查 OCR 執行狀態
+
+#### 1. 查看 Worker 日誌
+
+**即時監看 OCR 處理過程**：
+```bash
+docker compose logs worker --tail 20 --follow
+```
+
+**查看最近的日誌**：
+```bash
+docker compose logs worker --tail 50
+```
+
+#### 2. 確認 PaddleOCR 正在執行
+
+當你執行 OCR 任務時，worker 日誌會顯示：
+
+```
+Creating model: ('PP-OCRv5_server_det', None)
+Using official model (PP-OCRv5_server_det)...
+Fetching 6 files: 100%|██████████| 6/6 [00:09<00:00]
+✓ PaddleOCR initialized successfully
+  Device: CPU
+  Language: ch
+```
+
+這表示 PaddleOCR 正在下載模型並初始化。
+
+#### 3. 檢查 OCR 結果
+
+OCR 完成後，結果會儲存在：
+```
+workspace_samples/{workspace_slug}/labels/{record_slug}/*.json
+```
+
+例如：
+```bash
+# 查看 OCR 結果
+cat workspace_samples/demo_workspace/labels/test-record-001/rec_1_id_2226.json
+
+# 列出所有 OCR 結果
+ls -lh workspace_samples/demo_workspace/labels/test-record-001/
+```
+
+### PaddleOCR 配置
+
+#### CPU vs GPU
+
+預設使用 **CPU** 模式。若要啟用 GPU 加速：
+
+1. 編輯 `docker-compose.yml`：
+   ```yaml
+   worker:
+     environment:
+       - USE_GPU=1  # 啟用 GPU
+   ```
+
+2. 重啟 worker：
+   ```bash
+   docker compose restart worker
+   ```
+
+#### 語言設定
+
+預設使用 **中文 + 英文** (ch)。若要更改語言：
+
+```yaml
+worker:
+  environment:
+    - OCR_LANG=en  # 英文
+    - OCR_LANG=japan  # 日文
+    - OCR_LANG=korean  # 韓文
+```
+
+支援的語言請參考：[PaddleOCR 語言列表](https://github.com/PaddlePaddle/PaddleOCR/blob/release/2.7/doc/doc_en/multi_languages_en.md)
+
+### 常見問題
+
+#### 1. Worker 無法啟動
+
+**檢查日誌**：
+```bash
+docker compose logs worker
+```
+
+**常見錯誤**：
+- `ModuleNotFoundError: No module named 'paddleocr'`
+  → 需要重新 build：`docker compose build --no-cache worker`
+
+#### 2. OCR 任務卡在「處理中」
+
+**檢查 worker 是否正在運行**：
+```bash
+docker compose ps worker
+```
+
+**檢查 worker 日誌**：
+```bash
+docker compose logs worker --tail 50
+```
+
+**重啟 worker**：
+```bash
+docker compose restart worker
+```
+
+#### 3. OCR 任務失敗
+
+**查看詳細錯誤訊息**：
+```bash
+docker compose logs worker --tail 100
+```
+
+**常見原因**：
+- 圖片檔案不存在或無法讀取
+- PaddleOCR 模型下載失敗
+- 記憶體不足（OCR 模型需要約 2GB RAM）
+
+#### 4. 如何確認 PaddleOCR 真的在執行？
+
+執行 OCR 任務後，在另一個終端執行：
+```bash
+docker compose logs worker --follow
+```
+
+你應該會看到：
+1. **模型載入訊息**（首次執行時）：
+   ```
+   Creating model: ('PP-OCRv5_server_det', None)
+   Fetching 6 files: 100%|██████████| 6/6
+   ```
+
+2. **初始化成功訊息**：
+   ```
+   ✓ PaddleOCR initialized successfully
+     Device: CPU
+     Language: ch
+   ```
+
+3. **任務處理訊息**：
+   ```
+   ocr: jobs.tasks.run_record_ocr_job(...)
+   ```
+
+### 效能優化
+
+#### 首次執行較慢
+
+PaddleOCR 首次執行時需要下載模型（約 200MB），後續執行會使用快取：
+- 模型快取位置：`/root/.paddlex/official_models/`
+
+#### 加速建議
+
+1. **使用 GPU**（如果有 NVIDIA 顯卡）：
+   ```yaml
+   worker:
+     environment:
+       - USE_GPU=1
+     deploy:
+       resources:
+         reservations:
+           devices:
+             - driver: nvidia
+               count: 1
+               capabilities: [gpu]
+   ```
+
+2. **增加 worker 數量**（平行處理多個任務）：
+   ```yaml
+   worker:
+     deploy:
+       replicas: 2  # 啟動 2 個 worker
+   ```
+
+### 除錯技巧
+
+```bash
+# 進入 worker 容器
+docker compose exec worker bash
+
+# 檢查 PaddleOCR 是否已安裝
+pip list | grep paddleocr
+
+# 檢查模型快取
+ls -lh /root/.paddlex/official_models/
+
+# 手動執行 Python 測試
+python3 -c "from paddleocr import PaddleOCR; print('PaddleOCR OK')"
+
+# 檢查 Redis 連線
+redis-cli -h redis ping
+```
 
 ---
 

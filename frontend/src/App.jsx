@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Folder, BookOpen, FileText, Bell, Settings, User, Edit3, LayoutTemplate } from 'lucide-react'
+import { Folder, BookOpen, FileText, Bell, Settings, User, Edit3, LayoutTemplate, ClipboardList } from 'lucide-react'
 import LoginPage from './pages/Login.jsx'
 import RecordsPage from './pages/Records.jsx'
 import RecordPagesPage from './pages/RecordPages.jsx'
 import RecordItemPage from './pages/RecordItem.jsx'
 import WorkspacesPage from './pages/Workspaces.jsx'
 import MetadataTemplatesPage from './pages/MetadataTemplates.jsx'
+import JobsPage from './pages/Jobs.jsx'
 import { api } from './lib/api.js'
 import './App.css'
 
@@ -14,6 +15,7 @@ const routes = [
   { name: 'templates', pattern: /^\/templates$/, component: MetadataTemplatesPage },
   { name: 'login', pattern: /^\/login$/, component: LoginPage },
   { name: 'records', pattern: /^\/records$/, component: RecordsPage },
+  { name: 'jobs', pattern: /^\/jobs$/, component: JobsPage },
   {
     name: 'record-pages',
     pattern: /^\/records\/(?<slug>[^/]+)$/,
@@ -137,6 +139,13 @@ const sidebarLinks = [
     icon: BookOpen,
     to: '/records',
     matches: ['records'],
+  },
+  {
+    key: 'jobs',
+    label: '標註工作',
+    icon: ClipboardList,
+    to: '/jobs',
+    matches: ['jobs'],
   },
   {
     key: 'pages',

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Search, Upload, RefreshCw, BookOpen, ChevronRight, Edit } from 'lucide-react'
+import { Search, Upload, RefreshCw, BookOpen, ChevronRight, Edit, Sparkles, Loader2 } from 'lucide-react'
 import RecordMetadataModal from '../components/RecordMetadataModal.jsx'
 import { api } from '../lib/api.js'
 
@@ -19,6 +19,7 @@ export default function RecordsPage({
   workspaceState,
   onRefreshWorkspaces,
   onNavigate,
+  onRefreshJobs,
 }) {
   const activeWorkspace = workspaceState.current
   const activeWorkspaceSlug = activeWorkspace?.slug
@@ -35,6 +36,7 @@ export default function RecordsPage({
     templates: [],
   })
   const [savingMetadata, setSavingMetadata] = useState(false)
+  const [dispatchingRecord, setDispatchingRecord] = useState(null)
 
   const fileInputRef = useRef(null)
   const [uploadFile, setUploadFile] = useState(null)
@@ -173,6 +175,29 @@ export default function RecordsPage({
 
   const handleRefreshRecords = () => {
     setRefreshIndex((value) => value + 1)
+  }
+
+  const handleDispatchJob = async (record) => {
+    if (!record) {
+      return
+    }
+    const confirmed = window.confirm(`將「${record.title || record.slug}」派送至標註工作？`)
+    if (!confirmed) {
+      return
+    }
+    setDispatchingRecord(record.slug)
+    try {
+      await api.createJob({ record: record.slug })
+      if (typeof onRefreshJobs === 'function') {
+        onRefreshJobs()
+      }
+      onNavigate('/jobs')
+    } catch (err) {
+      console.error('Failed to create job:', err)
+      alert('建立標註工作失敗，請稍後再試。')
+    } finally {
+      setDispatchingRecord(null)
+    }
   }
 
   const handleFileChange = (event) => {
@@ -403,6 +428,19 @@ export default function RecordsPage({
                     <td className="records-table__date">{formatDate(record.created_at)}</td>
                     <td>
                       <div className="records-table__actions">
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => handleDispatchJob(record)}
+                          disabled={dispatchingRecord === record.slug}
+                        >
+                          {dispatchingRecord === record.slug ? (
+                            <Loader2 size={16} className="spin" />
+                          ) : (
+                            <Sparkles size={16} />
+                          )}
+                          <span>{dispatchingRecord === record.slug ? '派送中…' : '派送標註'}</span>
+                        </button>
                         <button
                           type="button"
                           className="text-button"

@@ -159,6 +159,50 @@ export async function batchUpdateItemMetadata(payload) {
   })
 }
 
+export async function getJobs({ status, limit } = {}) {
+  const params = new URLSearchParams()
+  if (status) {
+    params.set('status', status)
+  }
+  if (typeof limit === 'number') {
+    params.set('limit', String(limit))
+  }
+  const query = params.toString()
+  return fetchJSON(`/api/v1/jobs${query ? `?${query}` : ''}`)
+}
+
+export async function createJob({ record, jobType } = {}) {
+  if (!record) {
+    throw new Error('record slug is required')
+  }
+  return fetchJSON('/api/v1/jobs', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ record, job_type: jobType }),
+  })
+}
+
+export async function getJob(jobId) {
+  if (!jobId) {
+    throw new Error('job id is required')
+  }
+  return fetchJSON(`/api/v1/jobs/${encodeURIComponent(jobId)}`)
+}
+
+export async function retryJob(jobId) {
+  return fetchJSON(`/api/v1/jobs/${encodeURIComponent(jobId)}/retry`, {
+    method: 'POST',
+  })
+}
+
+export async function cancelJob(jobId) {
+  return fetchJSON(`/api/v1/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+  })
+}
+
 export const api = {
   getWorkspaces,
   getCurrentWorkspace,
@@ -174,4 +218,9 @@ export const api = {
   getItemMetadata,
   updateItemMetadata,
   batchUpdateItemMetadata,
+  getJobs,
+  createJob,
+  getJob,
+  retryJob,
+  cancelJob,
 }

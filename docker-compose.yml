@@ -45,15 +45,24 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: rq worker --url redis://redis:6379/0 default
+    command: rq worker --url redis://redis:6379/0 ocr
     volumes:
       - ./backend:/app
       - ./workspace_samples:/workspace_samples
     environment:
       - REDIS_URL=redis://redis:6379/0
       - WORKSPACES_ROOT=/workspace_samples
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - USE_GPU=1  # Enable GPU for PaddleOCR
     depends_on:
       - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
 volumes:
   frontend_node_modules:

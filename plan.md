@@ -187,16 +187,50 @@ UI 設計參考 `generated-page.html`，導入藍灰色配色、共用排版（2
 - ✅ Docker environment verified and running
 
 
-### M5｜單頁 OCR（同步）與模型設定
+### M5｜標註工作（Jobs）中心初版
 
-**目標**：單頁按鈕觸發 PaddleOCR，立即獲得框+文字。
+**目標**：導入「標註工作 Job」概念，使用者可在書籍層級派送標註任務，並於左側側邊欄檢視工作列表與狀態。
+
 **主要工作**：
 
-* 後端：`POST /api/v1/items/{id}/predict`；讀取 `OCR_MODELS_DIR` 權重；結果寫回 JSON（source:model）。
-* 前端：「自動標註」按鈕、執行中遮罩、錯誤提示。
-  **驗收**：任一頁按鈕後 1 次成功產生框+文字，UI 即時更新。
+* 後端：
+  * 建立 `jobs` domain（Model/Service）；定義 Job 狀態（`pending / running / finished / failed`）、關聯 Record 與建立者。
+  * API 端點：
+    * `GET /api/v1/jobs` 列出最新工作、支援狀態/關鍵字過濾。
+    * `POST /api/v1/jobs` 由 Record 觸發建立新工作（暫時使用同步 mock 處理）；產出簡易 progress（0 或 100）。
+    * `GET /api/v1/jobs/{id}` 回傳 Job 詳細資訊與對應 Record。
+  * Logs：紀錄 Job 建立與完成事件，方便後續追蹤。
+* 前端：
+  * Sidebar 新增「標註工作」入口（icon + label），對應 `/jobs` 頁面。
+  * Jobs Page：卡片或列表呈現每筆工作（Record 名稱、建立者、狀態、進度條、建立時間）。
+  * Records Page：在每筆 Record 卡片/表列上新增「派送標註」按鈕，可選擇工作類型（OCR）後建立 Job；成功後跳轉或在側邊欄顯示 toast。
+  * Left Sidebar Jobs 面板：在所有頁面顯示最接近的 5 筆工作狀態（mini list），可快速點擊進入 Jobs Page。
+  * UI 延續 `generated-page_2.html` 風格：工作卡片、狀態徽章、進度條、hover 陰影。
+* 驗收：
+  * 可在書籍清單/詳情中成功建立 Job，於 Jobs Page 與 Sidebar 中即時看見（同步刷新或輪詢）。
+  * Job 狀態變更（mock）會反映至 UI，進度條與狀態徽章顯示正確。
+  * API 與前端錯誤處理（建立失敗、未授權）有清楚提示。
 
-### M6｜背景 OCR 佇列（Redis + RQ）
+### M6｜OCR 背景佇列與工作追蹤
+
+**目標**：將 Job 與 Redis + RQ 佇列整合，工作建立後進入背景處理，並於 UI 即時顯示 Job 進度、結果或錯誤。
+
+**主要工作**：
+
+* 後端：
+  * 擴充 Job Model 欄位（`rq_job_id`, `progress`, `payload`）；提供更新進度的 Service。
+  * `POST /api/v1/jobs` 改為丟入 RQ 佇列，worker 執行 PaddleOCR 或 mock pipeline，定期回報進度與結果。
+  * 新增 `PATCH /api/v1/jobs/{id}`（worker 回報）與 `POST /api/v1/jobs/{id}/retry`、`POST /api/v1/jobs/{id}/cancel`。
+  * Worker：抓取 Record 頁面資料 → 生成 OCR 結果 → 更新 Job 狀態 → 寫回 labels。
+* 前端：
+  * Jobs Page 載入 Job 詳細資訊（包含執行紀錄、發送時間、完成時間、錯誤訊息）。
+  * 引入輪詢或 SSE 監看 Job 狀態，更新進度條與狀態徽章。
+  * Job 詳細側欄：顯示 Record 基本資訊、執行內容摘要、重試/取消按鈕。
+  * Record 詳細頁：顯示該 Record 最新 Job 狀態與「建立新工作」CTA。
+* 驗收：
+  * 建立 Job 後，後台 worker 可成功處理並更新狀態，前端 UI 於合理時間內更新。
+  * 失敗 Job 可重試；取消按鈕會停止未完成工作並回報狀態。
+  * Jobs Page 具備完整狀態過濾與排序；左側側欄與通知提示正確顯示工作結果。
 
 **目標**：Record 級別批次 OCR 排程與進度可視化。
 **主要工作**：

@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'accounts',               # ← 新增
     'annotations',            # ← 新增
     'ocr_service',            # ← 新增
+    'jobs',
 ]
 
 # === 中介層 ===
