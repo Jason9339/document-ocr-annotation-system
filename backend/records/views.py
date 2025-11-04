@@ -30,6 +30,7 @@ from .services import (
     update_record_metadata,
     save_annotations,
     set_active_workspace,
+    clear_record_annotations,
 )
 from .thumbnails import ensure_thumbnail
 
@@ -305,6 +306,23 @@ def item_annotations_view(request, item_id: str):
 
     saved = save_annotations(workspace, item_id, data)
     return JsonResponse({"ok": True, **saved})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def record_annotations_clear_view(request, record_slug: str):
+    try:
+        workspace = _active_workspace_or_400()
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    try:
+        get_record(workspace, record_slug)
+    except RecordError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+
+    cleared = clear_record_annotations(workspace, record_slug)
+    return JsonResponse({"ok": True, "cleared": cleared})
 
 
 @csrf_exempt

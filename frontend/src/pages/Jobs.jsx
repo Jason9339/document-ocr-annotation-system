@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { RefreshCw, AlertCircle, Loader2, RotateCcw, XCircle } from 'lucide-react'
+import { RefreshCw, AlertCircle, Loader2, RotateCcw, XCircle, Trash2 } from 'lucide-react'
 import { api } from '../lib/api.js'
 
 const statusMeta = {
@@ -75,6 +75,9 @@ export default function JobsPage({ workspaceState, onNavigate }) {
 
   const filteredJobs = jobsState.items
 
+  // Check if any job is running
+  const hasRunningJobs = jobsState.items.some((job) => job.status === 'pending' || job.status === 'running')
+
   const handleRefresh = () => {
     setRefreshIndex((value) => value + 1)
   }
@@ -106,6 +109,23 @@ export default function JobsPage({ workspaceState, onNavigate }) {
       alert('取消失敗，請稍後再試。')
     } finally {
       setProcessingJobId(null)
+    }
+  }
+
+  const handleClearJobs = async () => {
+    const confirmed = window.confirm('確定要清理所有已完成、失敗和已取消的工作記錄嗎？此操作無法復原。')
+    if (!confirmed) {
+      return
+    }
+    setJobsState((prev) => ({ ...prev, loading: true }))
+    try {
+      const result = await api.clearJobs()
+      alert(result.message || '清理完成')
+      handleRefresh()
+    } catch (error) {
+      console.error('clear jobs failed', error)
+      alert('清理失敗，請稍後再試。')
+      setJobsState((prev) => ({ ...prev, loading: false }))
     }
   }
 
@@ -145,6 +165,16 @@ export default function JobsPage({ workspaceState, onNavigate }) {
           <p>工作區：{activeWorkspace.slug}</p>
         </div>
         <div className="page-header__actions">
+          <button
+            type="button"
+            className="text-button text-button--danger"
+            onClick={handleClearJobs}
+            disabled={jobsState.loading || jobsState.items.length === 0 || hasRunningJobs}
+            title={hasRunningJobs ? '有工作正在執行中，無法清理' : '清理已完成、失敗和已取消的工作記錄'}
+          >
+            <Trash2 size={16} />
+            <span>清理記錄</span>
+          </button>
           <button type="button" className="text-button" onClick={handleRefresh} disabled={jobsState.loading}>
             <RefreshCw size={16} />
             <span>重新整理</span>

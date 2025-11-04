@@ -54,15 +54,20 @@ def run_record_ocr_job(job_id: str, workspace_slug: str, record_slug: str) -> Di
             image_path = workspace.path / item.rel_path
 
             # Run OCR on the image
-            detections = OCRService.run_ocr(image_path)
+            ocr_result = OCRService.run_ocr(image_path)
+            detections = ocr_result['detections']
+            metadata = ocr_result['metadata']
 
             # Format results as label JSON
-            label_data = OCRService.format_for_label(detections)
+            label_data = OCRService.format_for_label(detections, metadata)
 
             # Save to label file
             label_dir = workspace.path / 'labels' / record_slug
             label_dir.mkdir(parents=True, exist_ok=True)
-            label_path = label_dir / f"{item.basename}.json"
+            # Use Path to get filename without extension
+            from pathlib import Path
+            filename_without_ext = Path(item.filename).stem
+            label_path = label_dir / f"{filename_without_ext}.json"
 
             with open(label_path, 'w', encoding='utf-8') as f:
                 json.dump(label_data, f, ensure_ascii=False, indent=2)

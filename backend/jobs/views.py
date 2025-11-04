@@ -149,3 +149,25 @@ def job_cancel(request, job_id: str):
     job.finished_at = timezone.now()
     job.save(update_fields=["status", "finished_at", "updated_at"])
     return _job_payload(job)
+
+
+@csrf_exempt
+@require_POST
+def jobs_clear(request):
+    """Clear all finished, failed, and canceled jobs"""
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON payload.")
+
+    # Get status filter from payload (default to finished/failed/canceled)
+    status_list = payload.get("status", ["finished", "failed", "canceled"])
+
+    # Delete jobs with specified statuses
+    deleted_count = Job.objects.filter(status__in=status_list).delete()[0]
+
+    return JsonResponse({
+        "ok": True,
+        "deleted_count": deleted_count,
+        "message": f"已刪除 {deleted_count} 個工作記錄"
+    })

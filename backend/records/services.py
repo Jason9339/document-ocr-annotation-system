@@ -22,6 +22,7 @@ RECORD_METADATA_FILENAME = "metadata.json"
 LABELS_DIRNAME = "labels"
 ANNOTATIONS_SCHEMA_VERSION = 1
 METADATA_TEMPLATES_DIRNAME = "metadata_templates"
+DEFAULT_SHAPE_LABEL = "text"
 
 DEFAULT_METADATA_TEMPLATE = {
     "id": "default",
@@ -315,42 +316,173 @@ def _annotation_payload_path(workspace: Workspace, record_slug: str, filename: s
     return labels_root / Path(filename).with_suffix(".json")
 
 
+def _shapes_to_annotations(shapes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    annotations: List[Dict[str, Any]] = []
+    for index, shape in enumerate(shapes):
+        points = shape.get("points")
+        if not isinstance(points, list) or not points:
+            continue
+        numeric_points: List[Tuple[float, float]] = []
+        for point in points:
+            if (
+                isinstance(point, (list, tuple))
+                and len(point) >= 2
+                and isinstance(point[0], (int, float))
+                and isinstance(point[1], (int, float))
+            ):
+                numeric_points.append((float(point[0]), float(point[1])))
+        if not numeric_points:
+            continue
+        xs = [pt[0] for pt in numeric_points]
+        ys = [pt[1] for pt in numeric_points]
+        min_x = min(xs)
+        max_x = max(xs)
+        min_y = min(ys)
+        max_y = max(ys)
+
+        annotation: Dict[str, Any] = {
+            "id": shape.get("id") or f"shape-{index}",
+            "text": shape.get("text") or "",
+            "label": shape.get("label") or DEFAULT_SHAPE_LABEL,
+            "x": min_x,
+            "y": min_y,
+            "width": max_x - min_x,
+            "height": max_y - min_y,
+            "rotation": 0.0,
+            "order": shape.get("order", index),
+        }
+
+        for key, value in shape.items():
+            if key in {
+                "points",
+                "group_id",
+                "shape_type",
+                "flags",
+                "confidence",
+                "label",
+                "text",
+                "order",
+            }:
+                continue
+            annotation[key] = value
+
+        annotations.append(annotation)
+    return annotations
+
+
+def _annotations_to_shapes(annotations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    shapes: List[Dict[str, Any]] = []
+    for index, annotation in enumerate(annotations):
+        try:
+            x = float(annotation.get("x", 0))
+            y = float(annotation.get("y", 0))
+            width = float(annotation.get("width", 0))
+            height = float(annotation.get("height", 0))
+        except (TypeError, ValueError):
+            continue
+
+        points = [
+            [x, y],
+            [x + width, y],
+            [x + width, y + height],
+            [x, y + height],
+        ]
+
+        shape: Dict[str, Any] = {
+            "id": annotation.get("id") or f"annotation-{index}",
+            "label": annotation.get("label") or annotation.get("text") or DEFAULT_SHAPE_LABEL,
+            "text": annotation.get("text") or "",
+            "points": points,
+            "group_id": annotation.get("group_id"),
+            "shape_type": annotation.get("shape_type") or "polygon",
+            "flags": annotation.get("flags") or {},
+            "confidence": annotation.get("confidence"),
+            "order": annotation.get("order", index),
+        }
+
+        for key, value in annotation.items():
+            if key in {
+                "id",
+                "label",
+                "text",
+                "x",
+                "y",
+                "width",
+                "height",
+                "rotation",
+                "order",
+                "group_id",
+                "shape_type",
+                "flags",
+                "confidence",
+            }:
+                continue
+            shape[key] = value
+
+        shapes.append(shape)
+    return shapes
+
+
 def load_annotations(workspace: Workspace, item_id: str) -> Dict[str, Any]:
     record_slug, filename = _parse_item_id(item_id)
     sidecar_path = _annotation_payload_path(workspace, record_slug, filename)
     if not sidecar_path.exists():
-        default_payload = {
+        return {
             "schema_version": ANNOTATIONS_SCHEMA_VERSION,
             "annotations": [],
+            "shapes": [],
             "metadata": {},
             "updated_at": timezone.now().isoformat(),
         }
-        return default_payload
     try:
         with sidecar_path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
     except (json.JSONDecodeError, OSError):
-        return {
-            "schema_version": ANNOTATIONS_SCHEMA_VERSION,
-            "annotations": [],
-            "metadata": {},
-            "updated_at": timezone.now().isoformat(),
-        }
+        payload = {}
     if not isinstance(payload, dict):
-        return {
-            "schema_version": ANNOTATIONS_SCHEMA_VERSION,
-            "annotations": [],
-            "metadata": {},
-            "updated_at": timezone.now().isoformat(),
-        }
+        payload = {}
+
     payload.setdefault("schema_version", ANNOTATIONS_SCHEMA_VERSION)
-    payload.setdefault("annotations", [])
+
+    raw_shapes = payload.get("shapes")
+    shapes = raw_shapes if isinstance(raw_shapes, list) else []
+
+    raw_annotations = payload.get("annotations")
+    if isinstance(raw_annotations, list):
+        annotations = raw_annotations
+        if not shapes:
+            shapes = _annotations_to_shapes(annotations)
+            payload["shapes"] = shapes
+    else:
+        annotations = _shapes_to_annotations(shapes)
+
+    payload["annotations"] = annotations
+    payload["shapes"] = shapes
     payload["updated_at"] = payload.get("updated_at") or timezone.now().isoformat()
+
     metadata_values = payload.get("metadata")
     payload["metadata"] = _normalize_metadata_values(
         metadata_values if isinstance(metadata_values, dict) else {}
     )
     return payload
+
+
+def clear_record_annotations(workspace: Workspace, record_slug: str) -> int:
+    items = list(iter_items(workspace, record_slug=record_slug))
+    cleared = 0
+    for item in items:
+        save_annotations(
+            workspace,
+            item.id,
+            {
+                "annotations": [],
+                "shapes": [],
+                "metadata": {},
+                "ocr_result": {},
+            },
+        )
+        cleared += 1
+    return cleared
 
 
 def save_annotations(workspace: Workspace, item_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -363,12 +495,20 @@ def save_annotations(workspace: Workspace, item_id: str, data: Dict[str, Any]) -
     if preserve_existing_metadata:
         existing_payload = load_annotations(workspace, item_id)
 
+    shapes_input = data.get("shapes")
     if isinstance(data.get("annotations"), list):
         annotations = data["annotations"]
+    elif isinstance(shapes_input, list):
+        annotations = _shapes_to_annotations(shapes_input)
     elif existing_payload is not None:
         annotations = existing_payload.get("annotations", [])
     else:
         annotations = []
+
+    if isinstance(shapes_input, list):
+        shapes = shapes_input
+    else:
+        shapes = _annotations_to_shapes(annotations)
 
     schema_version = data.get("schema_version") or (
         existing_payload.get("schema_version") if existing_payload else None
@@ -383,15 +523,34 @@ def save_annotations(workspace: Workspace, item_id: str, data: Dict[str, Any]) -
     else:
         metadata_values = {}
 
+    if "ocr_result" in data and isinstance(data["ocr_result"], dict):
+        ocr_result_payload: Optional[Dict[str, Any]] = data["ocr_result"]
+    elif existing_payload is not None and isinstance(existing_payload.get("ocr_result"), dict):
+        ocr_result_payload = existing_payload["ocr_result"]
+    else:
+        ocr_result_payload = None
+
     payload = {
         "schema_version": schema_version,
         "annotations": annotations,
+        "shapes": shapes,
         "metadata": metadata_values,
         "updated_at": timezone.now().isoformat(),
     }
+    if ocr_result_payload is not None:
+        payload["ocr_result"] = ocr_result_payload
+
+    file_payload = {
+        "schema_version": schema_version,
+        "shapes": shapes,
+        "metadata": metadata_values,
+        "updated_at": payload["updated_at"],
+    }
+    if ocr_result_payload is not None:
+        file_payload["ocr_result"] = ocr_result_payload
 
     with sidecar_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=False, indent=2)
+        json.dump(file_payload, fh, ensure_ascii=False, indent=2)
 
     return payload
 

@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Stage, Layer, Rect, Image as KonvaImage, Text as KonvaText, Transformer } from 'react-konva'
+import {
+  Stage,
+  Layer,
+  Rect,
+  Image as KonvaImage,
+  Text as KonvaText,
+  Transformer,
+  Label,
+  Tag,
+} from 'react-konva'
 import { api } from '../lib/api.js'
 
 const MODE_DRAW = 'draw'
@@ -23,8 +32,20 @@ function usePageImage(url) {
     }
     const img = new Image()
     img.crossOrigin = 'Anonymous'
-    img.onload = () => setImage(img)
-    img.onerror = () => setImage(null)
+    img.onload = () => {
+      console.log('[DEBUG] Image loaded:', {
+        url,
+        width: img.width,
+        height: img.height,
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight
+      })
+      setImage(img)
+    }
+    img.onerror = () => {
+      console.error('[DEBUG] Image load error:', url)
+      setImage(null)
+    }
     img.src = url
     return () => {
       img.onload = null
@@ -90,26 +111,17 @@ function AnnotationCard({
         <span className="annotation-card__label">{annotation.label}</span>
         <span className="annotation-card__order">#{annotation.order + 1}</span>
       </header>
-      <label>
-        <span>文字內容</span>
-        <textarea
-          value={annotation.text}
-          onChange={(event) => onChange(annotation.id, { text: event.target.value })}
-          onFocus={() => {
-            onSelect(annotation.id)
-            onBeginTextEdit()
-          }}
-          rows={3}
-        />
-      </label>
-      <div className="annotation-card__coords">
-        <span>
-          X: {Math.round(annotation.x)}, Y: {Math.round(annotation.y)}
-        </span>
-        <span>
-          W: {Math.round(annotation.width)}, H: {Math.round(annotation.height)}
-        </span>
-      </div>
+      <textarea
+        className="annotation-card__textarea"
+        value={annotation.text}
+        onChange={(event) => onChange(annotation.id, { text: event.target.value })}
+        onFocus={() => {
+          onSelect(annotation.id)
+          onBeginTextEdit()
+        }}
+        rows={1}
+        placeholder="輸入文字…"
+      />
       <div className="annotation-card__actions">
         <button
           type="button"
@@ -212,6 +224,13 @@ export default function RecordItemPage({
     const width = pageImage.width * scale
     const height = pageImage.height * scale
 
+    console.log('[DEBUG] Stage size calculation:', {
+      imageSize: { width: pageImage.width, height: pageImage.height },
+      availableSize: { width: availableWidth, height: availableHeight },
+      scale,
+      stageSize: { width, height }
+    })
+
     return { width, height, scale }
   }, [pageImage, containerSize])
   const stageScale = stageSize.scale || 1
@@ -310,11 +329,19 @@ export default function RecordItemPage({
         if (cancelled) {
           return
         }
+        console.log('[DEBUG] Annotations loaded:', {
+          total: payload.annotations?.length || 0,
+          first: payload.annotations?.[0]
+        })
         const normalised = Array.isArray(payload.annotations)
           ? payload.annotations.map((annotation, index) =>
               normaliseAnnotation(annotation, index),
             )
           : []
+        console.log('[DEBUG] Normalised annotations:', {
+          total: normalised.length,
+          first: normalised[0]
+        })
         setDrawingState(null)
         setAnnotations(normalised)
         setAnnotationsReady(true)
@@ -826,21 +853,41 @@ export default function RecordItemPage({
                       />
                     )
                   })}
-                  {annotations.map((annotation) => (
-                    <KonvaText
-                      key={`${annotation.id}-label`}
-                      x={annotation.x * stageScale + 4}
-                      y={annotation.y * stageScale + 4}
-                      text={annotation.text || ''}
-                      width={Math.max(annotation.width * stageScale - 8, 0)}
-                      height={Math.max(annotation.height * stageScale - 8, 0)}
-                      fill={palette.base}
-                      fontSize={Math.max(12, 14 * stageScale)}
-                      fontStyle={annotation.id === selectedId ? 'bold' : 'normal'}
-                      listening={false}
-                      wrap="word"
-                    />
-                  ))}
+                  {annotations.map((annotation, index) => {
+                    const displayOrder = Number.isFinite(annotation.order)
+                      ? annotation.order + 1
+                      : index + 1
+                    const baseX = annotation.x * stageScale
+                    const baseY = annotation.y * stageScale
+                    const fontSize = Math.max(14, 16 * stageScale)
+                    const padding = Math.max(4, 6 * stageScale)
+                    const labelY = Math.max(baseY - (fontSize + padding * 2), 4)
+
+                    return (
+                      <Label
+                        key={`${annotation.id}-order`}
+                        x={baseX - padding}
+                        y={labelY}
+                        listening={false}
+                      >
+                        <Tag
+                          fill="rgba(27, 94, 74, 0.9)"
+                          cornerRadius={Math.max(6, 8 * stageScale)}
+                          shadowColor="rgba(17, 24, 39, 0.25)"
+                          shadowBlur={6}
+                          shadowOpacity={0.6}
+                          shadowOffset={{ x: 0, y: 2 }}
+                        />
+                        <KonvaText
+                          text={`#${displayOrder}`}
+                          fontSize={fontSize}
+                          fontStyle="bold"
+                          fill="#ffffff"
+                          padding={padding}
+                        />
+                      </Label>
+                    )
+                  })}
                   <Transformer
                     ref={transformerRef}
                     rotateEnabled

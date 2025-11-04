@@ -65,6 +65,15 @@ export async function getRecord(slug) {
   return fetchJSON(`/api/v1/records/${encodeURIComponent(slug)}`)
 }
 
+export async function clearRecordAnnotations(slug) {
+  if (!slug) {
+    throw new Error('record slug is required.')
+  }
+  return fetchJSON(`/api/v1/records/${encodeURIComponent(slug)}/annotations/clear`, {
+    method: 'POST',
+  })
+}
+
 export async function createRecord({ file, slug, title }) {
   if (!file) {
     throw new Error('Record file is required.')
@@ -203,6 +212,16 @@ export async function cancelJob(jobId) {
   })
 }
 
+export async function clearJobs({ status = ['finished', 'failed', 'canceled'] } = {}) {
+  return fetchJSON('/api/v1/jobs/clear', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status }),
+  })
+}
+
 export const api = {
   getWorkspaces,
   getCurrentWorkspace,
@@ -211,6 +230,7 @@ export const api = {
   getRecords,
   createRecord,
   getRecord,
+  clearRecordAnnotations,
   getItemAnnotations,
   updateItemAnnotations,
   getRecordMetadata,
@@ -223,4 +243,5 @@ export const api = {
   getJob,
   retryJob,
   cancelJob,
+  clearJobs,
 }

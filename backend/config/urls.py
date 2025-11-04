@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from annotations.views import health, enqueue_test, job_status
-from jobs.views import job_cancel, job_detail, job_retry, jobs_collection
+from jobs.views import job_cancel, job_detail, job_retry, jobs_collection, jobs_clear
 from records.views import (
     available_workspaces,
     current_workspace,
@@ -29,6 +29,7 @@ from records.views import (
     list_items_view,
     open_workspace,
     record_detail_view,
+    record_annotations_clear_view,
     records_root,
     record_metadata_view,
 )
@@ -45,6 +46,7 @@ urlpatterns = [
 
     # Jobs API
     path('api/v1/jobs', jobs_collection),
+    path('api/v1/jobs/clear', jobs_clear),
     path('api/v1/jobs/<str:job_id>', job_detail),
     path('api/v1/jobs/<str:job_id>/retry', job_retry),
     path('api/v1/jobs/<str:job_id>/cancel', job_cancel),
@@ -55,6 +57,7 @@ urlpatterns = [
     path('api/v1/workspace/open', open_workspace),
     path('api/v1/records', records_root),
     path('api/v1/records/<str:record_slug>', record_detail_view),
+    path('api/v1/records/<str:record_slug>/annotations/clear', record_annotations_clear_view),
     path('api/v1/records/<str:record_slug>/metadata', record_metadata_view),
     path('api/v1/items', list_items_view),
     path('api/v1/items/thumbnail', item_thumbnail),

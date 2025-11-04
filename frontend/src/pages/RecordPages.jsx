@@ -8,6 +8,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  Trash2,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 import MetadataEntryRow from '../components/MetadataEntryRow.jsx'
@@ -69,6 +70,13 @@ export default function RecordPagesPage({
   })
   const [batchSaving, setBatchSaving] = useState(false)
   const [batchLoadingMetadata, setBatchLoadingMetadata] = useState(false)
+  const [clearingAnnotations, setClearingAnnotations] = useState(false)
+  const [clearStatus, setClearStatus] = useState({
+    state: 'idle',
+    message: null,
+    error: null,
+  })
+  const [reloadToken, setReloadToken] = useState(0)
   const selectedItemsArray = useMemo(() => Array.from(selectedItems), [selectedItems])
   const selectedCount = selectedItemsArray.length
 
@@ -83,6 +91,10 @@ export default function RecordPagesPage({
   useEffect(() => {
     setPage(1)
   }, [query, sort, recordSlug, activeWorkspaceSlug])
+
+  useEffect(() => {
+    setClearStatus({ state: 'idle', message: null, error: null })
+  }, [recordSlug])
 
   useEffect(() => {
     if (!recordSlug || !activeWorkspaceSlug) {
@@ -163,7 +175,7 @@ export default function RecordPagesPage({
       .finally(() => setLoading(false))
 
     return () => controller.abort()
-  }, [page, query, sort, recordSlug, activeWorkspaceSlug])
+  }, [page, query, sort, recordSlug, activeWorkspaceSlug, reloadToken])
 
   const totalPages = useMemo(() => {
     if (!pagination.total || !pagination.page_size) {
@@ -301,6 +313,37 @@ export default function RecordPagesPage({
     setBatchStatus({ state: 'dirty', message: null, error: null })
   }
 
+  const handleClearAnnotations = async () => {
+    if (!recordSlug || clearingAnnotations) {
+      return
+    }
+    const confirmed = window.confirm('確定要刪除這本書所有頁面的標註嗎？此操作無法復原。')
+    if (!confirmed) {
+      return
+    }
+    setClearingAnnotations(true)
+    setClearStatus({ state: 'loading', message: '正在清除標註…', error: null })
+    try {
+      const payload = await api.clearRecordAnnotations(recordSlug)
+      const clearedPages =
+        typeof payload?.cleared === 'number' ? payload.cleared : pagination.total
+      setClearStatus({
+        state: 'success',
+        message: `已清除 ${clearedPages} 頁的標註。`,
+        error: null,
+      })
+      setReloadToken((token) => token + 1)
+    } catch (err) {
+      setClearStatus({
+        state: 'error',
+        message: null,
+        error: err.message ?? '無法清除標註，請稍後再試。',
+      })
+    } finally {
+      setClearingAnnotations(false)
+    }
+  }
+
   const handleLoadSelectedMetadata = async () => {
     if (selectedCount !== 1) {
       return
@@ -428,6 +471,15 @@ export default function RecordPagesPage({
           </p>
         </div>
         <div className="records-actions">
+          <button
+            type="button"
+            className="ghost-button ghost-button--danger"
+            onClick={handleClearAnnotations}
+            disabled={clearingAnnotations}
+          >
+            <Trash2 size={16} />
+            {clearingAnnotations ? '清除標註中…' : '刪除本書標註'}
+          </button>
           <button type="button" className="ghost-button" onClick={() => onNavigate('/records')}>
             <ArrowLeft size={16} />
             返回書籍清單
@@ -436,6 +488,15 @@ export default function RecordPagesPage({
       </header>
 
       {error ? <p className="error-banner">Failed to load items: {error}</p> : null}
+      {clearStatus.state === 'loading' && clearStatus.message ? (
+        <p className="record-pages__notice">{clearStatus.message}</p>
+      ) : null}
+      {clearStatus.state === 'success' && clearStatus.message ? (
+        <p className="record-pages__notice">{clearStatus.message}</p>
+      ) : null}
+      {clearStatus.state === 'error' && clearStatus.error ? (
+        <p className="record-pages__notice record-pages__notice--error">{clearStatus.error}</p>
+      ) : null}
 
       <section className="record-pages__summary">
         <div className="record-pages__meta">
