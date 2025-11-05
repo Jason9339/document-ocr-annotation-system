@@ -50,8 +50,8 @@ class OCRService:
             else:
                 device = "cpu"
 
-            # Get language setting (default to Chinese + English)
-            lang = os.getenv("OCR_LANG", "ch")
+            # Get language setting (default to Traditional Chinese)
+            lang = os.getenv("OCR_LANG", "chinese_cht")
 
             # Initialize PaddleOCR with PaddleOCR 3.x parameters
             # Use mobile models for lower memory usage
