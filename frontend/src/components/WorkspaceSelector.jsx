@@ -34,21 +34,28 @@ export default function WorkspaceSelector({
                 ? 'Choose a workspace'
                 : 'No workspace found'}
           </option>
-          {options.map((workspace) => (
-            <option key={workspace.slug} value={workspace.slug}>
-              {workspace.slug} ({workspace.records} record
-              {workspace.records === 1 ? '' : 's'})
-            </option>
-          ))}
+          {options.map((workspace) => {
+            const label = workspace.title?.trim() || workspace.slug
+            return (
+              <option key={workspace.slug} value={workspace.slug}>
+                {label} ({workspace.records} record
+                {workspace.records === 1 ? '' : 's'})
+              </option>
+            )
+          })}
           {!hasCurrent && current ? (
-            <option value={current.slug}>{current.slug}</option>
+            <option value={current.slug}>
+              {current.title?.trim() || current.slug}
+            </option>
           ) : null}
         </select>
       </label>
       <div className="workspace-selector__meta">
         {current ? (
           <span className="workspace-selector__current">
-            Active: <strong>{current.slug}</strong> ({current.pages} pages)
+            Active:{' '}
+            <strong>{current.title?.trim() || current.slug}</strong> ({current.pages}{' '}
+            pages)
           </span>
         ) : (
           <span className="workspace-selector__hint">

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Search, Plus, Folder, RefreshCw } from 'lucide-react'
+import { Search, Plus, Folder, ArrowRight, RefreshCw } from 'lucide-react'
 
 export default function WorkspacesPage({
   workspaceState,
@@ -18,7 +18,12 @@ export default function WorkspacesPage({
       return options
     }
     const lowered = searchTerm.trim().toLowerCase()
-    return options.filter((workspace) => workspace.slug.toLowerCase().includes(lowered))
+    return options.filter((workspace) => {
+      const slugMatch = workspace.slug.toLowerCase().includes(lowered)
+      const title = workspace.title ? String(workspace.title).toLowerCase() : ''
+      const titleMatch = title ? title.includes(lowered) : false
+      return slugMatch || titleMatch
+    })
   }, [options, searchTerm])
 
   const summaryText = useMemo(() => {
@@ -45,6 +50,18 @@ export default function WorkspacesPage({
     }
   }
 
+  const handleEnterActiveWorkspace = () => {
+    if (!current?.slug) {
+      if (filteredOptions.length === 1) {
+        handleOpenWorkspace(filteredOptions[0].slug)
+        return
+      }
+      window.alert('請先選擇欲進入的工作區。')
+      return
+    }
+    onNavigate('/records')
+  }
+
   const breadcrumbContainer = document.querySelector('.app-header__breadcrumb')
 
   const breadcrumb = (
@@ -66,11 +83,11 @@ export default function WorkspacesPage({
           <button
             type="button"
             className="ghost-button"
-            onClick={onRefreshWorkspaces}
-            disabled={isLoading}
+            onClick={handleEnterActiveWorkspace}
+            disabled={isLoading || (!current && filteredOptions.length === 0)}
           >
-            <RefreshCw size={16} />
-            重新整理
+            <ArrowRight size={16} />
+            進入
           </button>
           <button type="button" disabled className="primary-button disabled">
             <Plus size={16} />
@@ -90,9 +107,20 @@ export default function WorkspacesPage({
             disabled={isLoading}
           />
         </div>
-        <span className="workspace-toolbar__meta">
-          {filteredOptions.length} / {options.length} 個工作區
-        </span>
+        <div className="workspace-toolbar__meta">
+          <span>
+            {filteredOptions.length} / {options.length} 個工作區
+          </span>
+          <button
+            type="button"
+            className="workspace-toolbar__refresh"
+            onClick={onRefreshWorkspaces}
+            disabled={isLoading}
+          >
+            <RefreshCw size={16} />
+            <span>重新整理</span>
+          </button>
+        </div>
       </div>
 
       {error ? <p className="error-banner">無法載入 Workspace：{error}</p> : null}
@@ -110,6 +138,8 @@ export default function WorkspacesPage({
       <div className="workspace-grid">
         {filteredOptions.map((workspace) => {
           const isActive = current?.slug === workspace.slug
+          const displayName =
+            (workspace.title && String(workspace.title).trim()) || workspace.slug
           return (
             <article key={workspace.slug} className="workspace-card">
               <div className="workspace-card__header">
@@ -117,14 +147,15 @@ export default function WorkspacesPage({
                   <Folder size={24} />
                 </div>
                 <div className="workspace-card__titles">
-                  <h3>{workspace.slug}</h3>
+                  <h3>{displayName}</h3>
+                  <p className="workspace-card__slug">{workspace.slug}</p>
                   {workspace.path ? (
                     <p className="workspace-card__path">{workspace.path}</p>
                   ) : null}
                 </div>
                 {isActive ? (
                   <span className="workspace-card__status workspace-card__status--active">
-                    目前使用中
+                    使用中
                   </span>
                 ) : (
                   <span className="workspace-card__status">可供使用</span>
@@ -152,7 +183,7 @@ export default function WorkspacesPage({
                   onClick={() => handleOpenWorkspace(workspace.slug)}
                   disabled={isLoading}
                 >
-                  {isActive ? '重新整理' : '切換工作區'}
+                  {isActive ? '進入工作區' : '切換工作區'}
                 </button>
               </div>
             </article>

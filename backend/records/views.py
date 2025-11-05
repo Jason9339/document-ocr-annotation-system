@@ -14,10 +14,12 @@ from .services import (
     WorkspaceError,
     batch_update_items_metadata,
     create_record_from_upload,
+    delete_record,
     filter_items,
     get_active_workspace,
     get_item,
     get_item_metadata,
+    get_workspace,
     get_record,
     get_record_metadata_payload,
     iter_items,
@@ -25,9 +27,11 @@ from .services import (
     list_records,
     list_workspaces,
     load_annotations,
+    load_workspace_info,
     paginate_items,
     update_item_metadata,
     update_record_metadata,
+    update_workspace_info,
     save_annotations,
     set_active_workspace,
     clear_record_annotations,
@@ -39,6 +43,7 @@ def _workspace_payload(workspace) -> Dict:
     records_dir = workspace.path / "records"
     record_count = 0
     page_count = 0
+    info = load_workspace_info(workspace)
     if records_dir.exists():
         for record_dir in records_dir.iterdir():
             if not record_dir.is_dir():
@@ -50,6 +55,7 @@ def _workspace_payload(workspace) -> Dict:
             page_count += sum(1 for f in pages_dir.rglob("*") if f.is_file())
     return {
         "slug": workspace.slug,
+        "title": info.get("title"),
         "path": str(workspace.path),
         "records": record_count,
         "pages": page_count,
@@ -101,6 +107,32 @@ def open_workspace(request):
         return JsonResponse({"ok": False, "error": str(exc)}, status=404)
 
     return JsonResponse({"ok": True, "workspace": _workspace_payload(workspace)})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH", "PUT"])
+def update_workspace(request, slug: str):
+    try:
+        workspace = get_workspace(slug)
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON payload.")
+
+    if "title" not in payload:
+        return HttpResponseBadRequest("Missing 'title' field.")
+
+    title = payload.get("title")
+    try:
+        update_workspace_info(workspace.slug, title=title)
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    refreshed = get_workspace(slug)
+    return JsonResponse({"ok": True, "workspace": _workspace_payload(refreshed)})
 
 
 @csrf_exempt
@@ -252,13 +284,22 @@ def item_original(request):
     return FileResponse(source.open("rb"), content_type=content_type)
 
 
-@require_GET
+@csrf_exempt
+@require_http_methods(["GET", "DELETE"])
 def record_detail_view(request, record_slug: str):
     try:
         workspace = _active_workspace_or_400()
     except WorkspaceError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
+    if request.method == "DELETE":
+        try:
+            delete_record(workspace, record_slug)
+        except RecordError as exc:
+            return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+        return JsonResponse({"ok": True, "message": f"Record '{record_slug}' deleted successfully."})
+
+    # GET request
     try:
         record = get_record(workspace, record_slug)
     except RecordError as exc:

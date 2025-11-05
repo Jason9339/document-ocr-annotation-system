@@ -70,6 +70,14 @@ export default function MetadataTemplatesPage({ onNavigate, workspaceState }) {
         </div>
       </div>
 
+      <div className="metadata-templates-callout">
+        <h2>功能開發中</h2>
+        <p>
+          Metadata 模板管理目前僅提供範例資料與介面預覽。實際的新增、編輯與套用功能尚未串接後端服務，
+          後續更新將補上完整流程。
+        </p>
+      </div>
+
       <div className="metadata-templates-toolbar">
         <div className="metadata-templates-search">
           <Search size={18} className="metadata-templates-search__icon" />

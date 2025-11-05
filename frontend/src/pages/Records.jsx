@@ -1,7 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Search, Upload, RefreshCw, BookOpen, ChevronRight, Edit, Sparkles, Loader2 } from 'lucide-react'
+import {
+  Search,
+  RefreshCw,
+  BookOpen,
+  ChevronRight,
+  Edit,
+  Sparkles,
+  Loader2,
+  Trash2,
+  MoreHorizontal,
+  Settings,
+} from 'lucide-react'
 import RecordMetadataModal from '../components/RecordMetadataModal.jsx'
+import WorkspaceSettingsModal from '../components/WorkspaceSettingsModal.jsx'
 import { api } from '../lib/api.js'
 
 function formatDate(value) {
@@ -37,6 +49,11 @@ export default function RecordsPage({
   })
   const [savingMetadata, setSavingMetadata] = useState(false)
   const [dispatchingRecord, setDispatchingRecord] = useState(null)
+  const [deletingRecord, setDeletingRecord] = useState(null)
+  const [openActionMenu, setOpenActionMenu] = useState(null)
+  const [workspaceDetails, setWorkspaceDetails] = useState(activeWorkspace || null)
+  const [workspaceSettingsOpen, setWorkspaceSettingsOpen] = useState(false)
+  const [workspaceSettingsSaving, setWorkspaceSettingsSaving] = useState(false)
 
   const fileInputRef = useRef(null)
   const [uploadFile, setUploadFile] = useState(null)
@@ -61,8 +78,8 @@ export default function RecordsPage({
         if (cancelled) {
           return
         }
-        setRecords(payload.records ?? [])
-      })
+      setRecords(payload.records ?? [])
+    })
       .catch((err) => {
         if (cancelled) {
           return
@@ -80,6 +97,32 @@ export default function RecordsPage({
       cancelled = true
     }
   }, [activeWorkspaceSlug, refreshIndex])
+
+  useEffect(() => {
+    if (!openActionMenu) {
+      return
+    }
+    const handleOutsideClick = (event) => {
+      if (!event.target.closest('.records-table__action-menu')) {
+        setOpenActionMenu(null)
+      }
+    }
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setOpenActionMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [openActionMenu])
+
+  useEffect(() => {
+    setWorkspaceDetails(activeWorkspace || null)
+  }, [activeWorkspace])
 
   if (workspaceState.loading) {
     return (
@@ -126,6 +169,54 @@ export default function RecordsPage({
       record.slug.toLowerCase().includes(value)
     )
   })
+
+  const workspaceDisplayName =
+    (workspaceDetails?.title && String(workspaceDetails.title).trim()) ||
+    workspaceDetails?.slug ||
+    ''
+  const workspaceSlug = workspaceDetails?.slug || ''
+
+  const handleOpenWorkspaceSettings = () => {
+    if (!workspaceDetails) {
+      return
+    }
+    setWorkspaceSettingsOpen(true)
+  }
+
+  const handleCloseWorkspaceSettings = () => {
+    if (workspaceSettingsSaving) {
+      return
+    }
+    setWorkspaceSettingsOpen(false)
+  }
+
+  const handleSaveWorkspaceSettings = async ({ title }) => {
+    if (!workspaceDetails?.slug) {
+      return
+    }
+    setWorkspaceSettingsSaving(true)
+    try {
+      const result = await api.updateWorkspace(workspaceDetails.slug, { title })
+      const updatedWorkspace = result?.workspace ?? {
+        ...workspaceDetails,
+        title,
+      }
+      setWorkspaceDetails(updatedWorkspace)
+      setWorkspaceSettingsOpen(false)
+      if (typeof onRefreshWorkspaces === 'function') {
+        try {
+          await Promise.resolve(onRefreshWorkspaces())
+        } catch (err) {
+          console.error('Failed to refresh workspaces after update:', err)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update workspace:', err)
+      alert('更新工作區失敗：' + (err.message || '請稍後再試'))
+    } finally {
+      setWorkspaceSettingsSaving(false)
+    }
+  }
 
   const handleOpenRecord = (slug) => {
     onNavigate(`/records/${encodeURIComponent(slug)}`)
@@ -200,6 +291,37 @@ export default function RecordsPage({
     }
   }
 
+  const handleToggleActionMenu = (slug) => {
+    setOpenActionMenu((current) => (current === slug ? null : slug))
+  }
+
+  const closeActionMenu = () => {
+    setOpenActionMenu(null)
+  }
+
+  const handleDeleteRecord = async (record) => {
+    if (!record) {
+      return
+    }
+    const confirmed = window.confirm(
+      `確定要刪除「${record.title || record.slug}」嗎？此動作無法復原，包含所有頁面與標註。`,
+    )
+    if (!confirmed) {
+      return
+    }
+    try {
+      setDeletingRecord(record.slug)
+      await api.deleteRecord(record.slug)
+      setRecords((prev) => prev.filter((item) => item.slug !== record.slug))
+      setRefreshIndex((value) => value + 1)
+    } catch (err) {
+      console.error('Failed to delete record:', err)
+      alert('刪除失敗：' + (err.message || '請稍後再試'))
+    } finally {
+      setDeletingRecord(null)
+    }
+  }
+
   const handleFileChange = (event) => {
     const file = event.target.files?.[0]
     setUploadFile(file ?? null)
@@ -246,7 +368,9 @@ export default function RecordsPage({
         工作區
       </button>
       <ChevronRight size={16} className="breadcrumb__separator" />
-      <span className="breadcrumb__item">{activeWorkspace.slug}</span>
+      <span className="breadcrumb__item" title={workspaceSlug}>
+        {workspaceDisplayName}
+      </span>
     </nav>
   )
 
@@ -267,23 +391,20 @@ export default function RecordsPage({
           <button
             type="button"
             className="text-button"
+            onClick={handleOpenWorkspaceSettings}
+            disabled={!workspaceDetails || workspaceSettingsSaving}
+          >
+            <Settings size={16} />
+            <span>編輯工作區</span>
+          </button>
+          <button
+            type="button"
+            className="text-button"
             onClick={handleRefreshRecords}
             disabled={loading}
           >
             <RefreshCw size={16} />
             <span>重新整理</span>
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => {
-              if (fileInputRef.current) {
-                fileInputRef.current.click()
-              }
-            }}
-          >
-            <Upload size={16} />
-            上傳書籍
           </button>
         </div>
       </div>
@@ -291,7 +412,10 @@ export default function RecordsPage({
       <div className="records-summary-panel">
         <div>
           <span className="records-summary-panel__label">當前工作區</span>
-          <h2>{activeWorkspace.slug}</h2>
+          <h2>{workspaceDisplayName}</h2>
+          {workspaceSlug ? (
+            <span className="records-summary-panel__slug">{workspaceSlug}</span>
+          ) : null}
         </div>
         <div className="records-summary-panel__stats">
           <div>
@@ -393,8 +517,11 @@ export default function RecordsPage({
                 </tr>
               </thead>
               <tbody>
-                {filteredRecords.map((record) => (
-                  <tr key={record.slug}>
+                {filteredRecords.map((record) => {
+                  const actionMenuOpen = openActionMenu === record.slug
+                  const actionMenuId = `record-actions-${record.slug}`
+                  return (
+                    <tr key={record.slug} className={actionMenuOpen ? 'menu-open' : ''}>
                     <td>
                       <div className="records-table__title">
                         <div className="records-table__icon" aria-hidden="true">
@@ -423,32 +550,15 @@ export default function RecordsPage({
                       </div>
                     </td>
                     <td>
-                      <span className="status-badge status-badge--pending">未開始</span>
+                      {record.has_annotations ? (
+                        <span className="status-badge status-badge--in-progress">進行中</span>
+                      ) : (
+                        <span className="status-badge status-badge--pending">未開始</span>
+                      )}
                     </td>
                     <td className="records-table__date">{formatDate(record.created_at)}</td>
                     <td>
                       <div className="records-table__actions">
-                        <button
-                          type="button"
-                          className="text-button"
-                          onClick={() => handleDispatchJob(record)}
-                          disabled={dispatchingRecord === record.slug}
-                        >
-                          {dispatchingRecord === record.slug ? (
-                            <Loader2 size={16} className="spin" />
-                          ) : (
-                            <Sparkles size={16} />
-                          )}
-                          <span>{dispatchingRecord === record.slug ? '派送中…' : '派送標註'}</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="text-button"
-                          onClick={() => handleOpenMetadata(record)}
-                        >
-                          <Edit size={16} />
-                          <span>編輯</span>
-                        </button>
                         <button
                           type="button"
                           className="text-button"
@@ -457,15 +567,87 @@ export default function RecordsPage({
                           <BookOpen size={16} />
                           <span>檢視</span>
                         </button>
+                        <div className={`records-table__action-menu${actionMenuOpen ? ' records-table__action-menu--open' : ''}`}>
+                          <button
+                            type="button"
+                            className={`icon-button records-table__action-trigger${actionMenuOpen ? ' records-table__action-trigger--active' : ''}`}
+                            aria-haspopup="menu"
+                            aria-expanded={actionMenuOpen}
+                            aria-controls={actionMenuId}
+                            onClick={() => handleToggleActionMenu(record.slug)}
+                          >
+                            <MoreHorizontal size={18} />
+                          </button>
+                          {actionMenuOpen ? (
+                            <div
+                              className="records-table__action-dropdown"
+                              role="menu"
+                              id={actionMenuId}
+                            >
+                              <button
+                                type="button"
+                                className="records-table__action-item"
+                                onClick={() => {
+                                  closeActionMenu()
+                                  handleDispatchJob(record)
+                                }}
+                                disabled={dispatchingRecord === record.slug}
+                              >
+                                {dispatchingRecord === record.slug ? (
+                                  <Loader2 size={16} className="spin" />
+                                ) : (
+                                  <Sparkles size={16} />
+                                )}
+                                <span>{dispatchingRecord === record.slug ? '派送中…' : '派送標註'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="records-table__action-item"
+                                onClick={() => {
+                                  closeActionMenu()
+                                  handleOpenMetadata(record)
+                                }}
+                              >
+                                <Edit size={16} />
+                                <span>編輯</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="records-table__action-item records-table__action-item--danger"
+                                onClick={() => {
+                                  closeActionMenu()
+                                  handleDeleteRecord(record)
+                                }}
+                                disabled={deletingRecord === record.slug}
+                              >
+                                {deletingRecord === record.slug ? (
+                                  <Loader2 size={16} className="spin" />
+                                ) : (
+                                  <Trash2 size={16} />
+                                )}
+                                <span>{deletingRecord === record.slug ? '刪除中…' : '刪除'}</span>
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
         ) : null}
       </div>
+
+      <WorkspaceSettingsModal
+        isOpen={workspaceSettingsOpen}
+        workspace={workspaceDetails}
+        onClose={handleCloseWorkspaceSettings}
+        onSave={handleSaveWorkspaceSettings}
+        saving={workspaceSettingsSaving}
+      />
 
       <RecordMetadataModal
         isOpen={metadataModal.isOpen}

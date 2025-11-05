@@ -57,6 +57,19 @@ export async function openWorkspace(slug) {
   })
 }
 
+export async function updateWorkspace(slug, payload = {}) {
+  if (!slug) {
+    throw new Error('workspace slug is required')
+  }
+  return fetchJSON(`/api/v1/workspaces/${encodeURIComponent(slug)}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+}
+
 export async function getRecords() {
   return fetchJSON('/api/v1/records')
 }
@@ -168,6 +181,15 @@ export async function batchUpdateItemMetadata(payload) {
   })
 }
 
+export async function deleteRecord(slug) {
+  if (!slug) {
+    throw new Error('record slug is required')
+  }
+  return fetchJSON(`/api/v1/records/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+  })
+}
+
 export async function getJobs({ status, limit } = {}) {
   const params = new URLSearchParams()
   if (status) {
@@ -226,6 +248,7 @@ export const api = {
   getWorkspaces,
   getCurrentWorkspace,
   openWorkspace,
+  updateWorkspace,
   getItems,
   getRecords,
   createRecord,
@@ -238,6 +261,7 @@ export const api = {
   getItemMetadata,
   updateItemMetadata,
   batchUpdateItemMetadata,
+  deleteRecord,
   getJobs,
   createJob,
   getJob,

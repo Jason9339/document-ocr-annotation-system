@@ -9,11 +9,49 @@ import {
   Label,
   Tag,
 } from 'react-konva'
+import {
+  MousePointer,
+  BoxSelect,
+  Trash2,
+  CheckSquare,
+  Pencil,
+  SlidersHorizontal,
+  Layers,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
 import { api } from '../lib/api.js'
 
-const MODE_DRAW = 'draw'
-const MODE_EDIT = 'edit'
 const MIN_DRAW_SIZE = 12
+
+const ANNOTATION_STAGES = [
+  { id: 'layout', label: '框校正' },
+  { id: 'text', label: '文字標註' },
+]
+
+const GROUP_COLORS = ['#2563eb', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#14b8a6', '#facc15']
+
+function hexToRgba(hex, alpha) {
+  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  if (!match) {
+    return `rgba(17, 24, 39, ${alpha})`
+  }
+  const r = parseInt(match[1], 16)
+  const g = parseInt(match[2], 16)
+  const b = parseInt(match[3], 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function groupLabelFromIndex(index) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  let value = index
+  let label = ''
+  while (value >= 0) {
+    label = alphabet[value % 26] + label
+    value = Math.floor(value / 26) - 1
+  }
+  return label || 'A'
+}
 
 function randomId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -33,17 +71,9 @@ function usePageImage(url) {
     const img = new Image()
     img.crossOrigin = 'Anonymous'
     img.onload = () => {
-      console.log('[DEBUG] Image loaded:', {
-        url,
-        width: img.width,
-        height: img.height,
-        naturalWidth: img.naturalWidth,
-        naturalHeight: img.naturalHeight
-      })
       setImage(img)
     }
     img.onerror = () => {
-      console.error('[DEBUG] Image load error:', url)
       setImage(null)
     }
     img.src = url
@@ -67,11 +97,12 @@ function normaliseAnnotation(annotation, fallbackIndex = 0) {
     height: Number.isFinite(annotation.height) ? Math.max(40, annotation.height) : 120,
     rotation: Number.isFinite(annotation.rotation) ? annotation.rotation : 0,
     order: Number.isFinite(annotation.order) ? annotation.order : fallbackIndex,
+    group_id: Number.isFinite(annotation.group_id) ? annotation.group_id : 0,
   }
 }
 
 function serialiseAnnotations(annotations) {
-  return annotations.map(({ id, text, label, x, y, width, height, rotation, order }) => ({
+  return annotations.map(({ id, text, label, x, y, width, height, rotation, order, group_id }) => ({
     id,
     text,
     label,
@@ -81,58 +112,122 @@ function serialiseAnnotations(annotations) {
     height,
     rotation,
     order,
+    group_id: Number.isFinite(group_id) ? group_id : 0,
   }))
 }
 
 function AnnotationCard({
   annotation,
   isSelected,
+  totalCount,
   onSelect,
-  onChange,
   onDelete,
+  onOrderChange,
+  onUpdateText = () => {},
   palette,
-  onBeginTextEdit = () => {},
+  allowGrouping = false,
+  groupOptions = [],
+  onGroupChange = () => {},
+  groupColor = '#94a3b8',
+  showTextEditor = false,
+  showOrderControls = true,
+  showDelete = true,
 }) {
   return (
     <div
       className={`annotation-card${isSelected ? ' annotation-card--active' : ''}`}
-      onClick={() => onSelect(annotation.id)}
+      onClick={(event) => {
+        event.stopPropagation()
+        onSelect(annotation.id, event)
+      }}
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
-          onSelect(annotation.id)
+          onSelect(annotation.id, event)
         }
       }}
       style={{ borderColor: isSelected ? palette.accent : undefined }}
     >
       <header>
-        <span className="annotation-card__label">{annotation.label}</span>
+        <div className="annotation-card__label">
+          <span
+            className="annotation-card__group-dot"
+            style={{ backgroundColor: groupColor }}
+            aria-hidden="true"
+          />
+          <span>{annotation.label}</span>
+        </div>
         <span className="annotation-card__order">#{annotation.order + 1}</span>
       </header>
-      <textarea
-        className="annotation-card__textarea"
-        value={annotation.text}
-        onChange={(event) => onChange(annotation.id, { text: event.target.value })}
-        onFocus={() => {
-          onSelect(annotation.id)
-          onBeginTextEdit()
-        }}
-        rows={1}
-        placeholder="輸入文字…"
-      />
-      <div className="annotation-card__actions">
-        <button
-          type="button"
-          className="ghost"
-          onClick={(event) => {
-            event.stopPropagation()
-            onDelete(annotation.id)
-          }}
-        >
-          刪除
-        </button>
+      {showTextEditor ? (
+        <div className="annotation-card__text-editor">
+          <textarea
+            value={annotation.text}
+            onChange={(event) => onUpdateText(annotation.id, event.target.value)}
+            rows={2}
+            placeholder="輸入文字…"
+          />
+        </div>
+      ) : null}
+      <div className="annotation-card__controls">
+        <div className="annotation-card__extras">
+          {allowGrouping ? (
+            <label className="annotation-card__group-control">
+              <span>群組</span>
+              <div className="annotation-card__group-select">
+                <span
+                  className="annotation-card__group-dot annotation-card__group-dot--inline"
+                  style={{ backgroundColor: groupColor }}
+                  aria-hidden="true"
+                />
+                <select
+                  value={
+                    Number.isFinite(annotation.group_id)
+                      ? String(annotation.group_id)
+                      : '0'
+                  }
+                  onChange={(event) => onGroupChange(annotation.id, event.target.value)}
+                >
+                  {groupOptions.map((option) => (
+                    <option key={option.id} value={String(option.id)}>
+                      {option.label}
+                    </option>
+                  ))}
+                  <option value="__new__">+ 新增群組</option>
+                </select>
+              </div>
+            </label>
+          ) : null}
+          {showOrderControls ? (
+            <label className="annotation-card__order-control">
+              <span>請選擇插入位置</span>
+              <select
+                value={annotation.order}
+                onChange={(event) => onOrderChange(annotation.id, Number(event.target.value))}
+              >
+                {Array.from({ length: totalCount }, (_, index) => (
+                  <option key={index} value={index}>
+                    #{index + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {showDelete ? (
+            <button
+              type="button"
+              className="annotation-card__delete"
+              onClick={(event) => {
+                event.stopPropagation()
+                onDelete([annotation.id])
+              }}
+            >
+              刪除
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   )
@@ -164,8 +259,8 @@ export default function RecordItemPage({
     const filePart = rest.join('/')
     return [recordPart || null, filePart || null]
   }, [itemId])
-  const [mode, setMode] = useState(MODE_DRAW)
-  const isDrawMode = mode === MODE_DRAW
+  const [annotationStage, setAnnotationStage] = useState('layout')
+  const [selectionRect, setSelectionRect] = useState(null)
 
   const [pageInfo, setPageInfo] = useState({
     loading: true,
@@ -176,26 +271,31 @@ export default function RecordItemPage({
   const [annotationsReady, setAnnotationsReady] = useState(false)
   const [annotationsError, setAnnotationsError] = useState(null)
   const annotationsInitialised = useRef(false)
-  const [selectedId, setSelectedId] = useState(null)
+  const [selectedIds, setSelectedIds] = useState([])
+  const [selectionMode, setSelectionMode] = useState('single')
+  const [sidebarView, setSidebarView] = useState('groups')
   const [saveStatus, setSaveStatus] = useState({
     state: 'idle',
     updatedAt: null,
     error: null,
   })
-  const [drawingState, setDrawingState] = useState(null)
-
   const autosaveTimerRef = useRef(null)
   const stageContainerRef = useRef(null)
   const stageRef = useRef(null)
   const transformerRef = useRef(null)
   const shapeRefs = useRef({})
+  const drawingStateRef = useRef(null)
   const [containerSize, setContainerSize] = useState({ width: 960, height: 640 })
 
   const workspace = workspaceState.current
 
   const handleBackToRecords = useCallback(() => {
-    onNavigate('/records')
-  }, [onNavigate])
+    if (recordSlug) {
+      onNavigate(`/records/${encodeURIComponent(recordSlug)}`)
+    } else {
+      onNavigate('/records')
+    }
+  }, [onNavigate, recordSlug])
 
   const pageImage = usePageImage(pageInfo.page?.original_url)
 
@@ -224,16 +324,273 @@ export default function RecordItemPage({
     const width = pageImage.width * scale
     const height = pageImage.height * scale
 
-    console.log('[DEBUG] Stage size calculation:', {
-      imageSize: { width: pageImage.width, height: pageImage.height },
-      availableSize: { width: availableWidth, height: availableHeight },
-      scale,
-      stageSize: { width, height }
-    })
-
     return { width, height, scale }
   }, [pageImage, containerSize])
   const stageScale = stageSize.scale || 1
+  const isMultiSelectEnabled = selectionMode === 'multi'
+  const primarySelectedId = selectedIds.length > 0 ? selectedIds[selectedIds.length - 1] : null
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
+  const selectedAnnotations = useMemo(
+    () => annotations.filter((annotation) => selectedSet.has(annotation.id)),
+    [annotations, selectedSet],
+  )
+  const selectionGroupId = useMemo(() => {
+    if (selectedAnnotations.length === 0) {
+      return null
+    }
+    const firstGroup = Number.isFinite(selectedAnnotations[0].group_id)
+      ? selectedAnnotations[0].group_id
+      : 0
+    const uniform = selectedAnnotations.every((annotation) => {
+      const groupValue = Number.isFinite(annotation.group_id) ? annotation.group_id : 0
+      return groupValue === firstGroup
+    })
+    return uniform ? firstGroup : null
+  }, [selectedAnnotations])
+  const selectionGroupValue = selectionGroupId === null ? '__mixed__' : String(selectionGroupId)
+  const hasSelection = selectedIds.length > 0
+  const allowGeometryEditing = annotationStage !== 'text'
+  const allowGroupingOperations = annotationStage !== 'text'
+  const showTextEditor = annotationStage === 'text'
+  const showLayoutInsertControls = annotationStage === 'layout'
+
+  useEffect(() => {
+    if (showTextEditor || !allowGroupingOperations) {
+      setSidebarView('annotations')
+    } else if (!showTextEditor && allowGroupingOperations) {
+      setSidebarView((prev) => (prev === 'annotations' ? 'groups' : prev))
+    }
+  }, [showTextEditor, allowGroupingOperations])
+  const groupIds = useMemo(() => {
+    const ids = new Set()
+    annotations.forEach((annotation) => {
+      ids.add(Number.isFinite(annotation.group_id) ? annotation.group_id : 0)
+    })
+    return Array.from(ids).sort((a, b) => a - b)
+  }, [annotations])
+  const groupColorMap = useMemo(() => {
+    const map = new Map()
+    groupIds.forEach((id, index) => {
+      map.set(id, GROUP_COLORS[index % GROUP_COLORS.length])
+    })
+    return map
+  }, [groupIds])
+  const groupSequence = useMemo(() => {
+    const firstOrderMap = new Map()
+    annotations.forEach((annotation) => {
+      const gid = Number.isFinite(annotation.group_id) ? annotation.group_id : 0
+      const first = firstOrderMap.get(gid)
+      if (first === undefined || annotation.order < first) {
+        firstOrderMap.set(gid, annotation.order)
+      }
+    })
+    return Array.from(firstOrderMap.entries())
+      .sort((a, b) => a[1] - b[1])
+      .map(([gid]) => gid)
+  }, [annotations])
+
+  const groupOptions = useMemo(
+    () =>
+      groupSequence.map((gid, index) => {
+        const letter = groupLabelFromIndex(index)
+        return {
+          id: gid,
+          label: letter,
+          letter,
+          color: groupColorMap.get(gid) ?? '#94a3b8',
+        }
+      }),
+    [groupSequence, groupColorMap],
+  )
+  const showGroupingColors = groupOptions.length > 0
+
+  const normaliseGroupsAndOrder = useCallback((items) => {
+    const ordered = items
+      .map((annotation, index) => ({
+        ...annotation,
+        order: Number.isFinite(annotation.order) ? annotation.order : index,
+        group_id: Number.isFinite(annotation.group_id) ? annotation.group_id : 0,
+      }))
+      .sort((a, b) => a.order - b.order)
+
+    return ordered.map((annotation, index) => ({
+      ...annotation,
+      order: index,
+    }))
+  }, [])
+
+  const setGroupForAnnotations = useCallback(
+    (targetIds, groupValue) => {
+      if (!allowGroupingOperations) {
+        return
+      }
+      const ids = Array.isArray(targetIds) ? targetIds : [targetIds]
+      if (ids.length === 0) {
+        return
+      }
+      setAnnotations((prev) => {
+        const targetSet = new Set(ids)
+        let resolvedGroupId = 0
+        if (groupValue === 'new') {
+          const maxGroup = prev.reduce(
+            (max, annotation) =>
+              Math.max(max, Number.isFinite(annotation.group_id) ? annotation.group_id : 0),
+            -1,
+          )
+          resolvedGroupId = maxGroup + 1
+        } else if (typeof groupValue === 'number' && Number.isFinite(groupValue)) {
+          resolvedGroupId = groupValue
+        } else {
+          const numeric = Number(groupValue)
+          resolvedGroupId = Number.isFinite(numeric) ? numeric : 0
+        }
+        const updated = prev.map((annotation) => {
+          if (!targetSet.has(annotation.id)) {
+            return { ...annotation }
+          }
+          return {
+            ...annotation,
+            group_id: resolvedGroupId,
+          }
+        })
+        return normaliseGroupsAndOrder(updated)
+      })
+    },
+    [allowGroupingOperations, normaliseGroupsAndOrder],
+  )
+
+  const handleSelectionGroupChange = useCallback(
+    (value) => {
+      if (!allowGroupingOperations || selectedIds.length === 0) {
+        return
+      }
+      if (value === '__mixed__') {
+        return
+      }
+      if (value === '__new__') {
+        setGroupForAnnotations(selectedIds, 'new')
+        return
+      }
+      const numeric = Number(value)
+      if (!Number.isFinite(numeric)) {
+        return
+      }
+      setGroupForAnnotations(selectedIds, numeric)
+    },
+    [allowGroupingOperations, selectedIds, setGroupForAnnotations],
+  )
+
+  const handleCardGroupChange = useCallback(
+    (id, value) => {
+      if (!allowGroupingOperations) {
+        return
+      }
+      if (value === '__new__') {
+        setGroupForAnnotations([id], 'new')
+        return
+      }
+      const numeric = Number(value)
+      if (!Number.isFinite(numeric)) {
+        return
+      }
+      setGroupForAnnotations([id], numeric)
+    },
+    [allowGroupingOperations, setGroupForAnnotations],
+  )
+
+  const handleCreateGroupFromSelection = useCallback(() => {
+    if (!allowGroupingOperations || selectedIds.length === 0) {
+      return
+    }
+    setSelectionMode('multi')
+    setGroupForAnnotations(selectedIds, 'new')
+  }, [allowGroupingOperations, selectedIds, setGroupForAnnotations])
+
+  const handleShiftGroup = useCallback(
+    (groupId, direction) => {
+      if (!allowGroupingOperations) {
+        return
+      }
+      setAnnotations((prev) => {
+        const orderMap = new Map()
+        prev.forEach((annotation) => {
+          const gid = Number.isFinite(annotation.group_id) ? annotation.group_id : 0
+          const current = orderMap.get(gid)
+          if (current === undefined || annotation.order < current) {
+            orderMap.set(gid, annotation.order)
+          }
+        })
+        const sequence = Array.from(orderMap.entries())
+          .sort((a, b) => a[1] - b[1])
+          .map(([gid]) => gid)
+        const currentIndex = sequence.indexOf(groupId)
+        const targetIndex = currentIndex + direction
+        if (currentIndex === -1 || targetIndex < 0 || targetIndex >= sequence.length) {
+          return prev
+        }
+        const reorderedSequence = sequence.slice()
+        const [moved] = reorderedSequence.splice(currentIndex, 1)
+        reorderedSequence.splice(targetIndex, 0, moved)
+
+        const grouped = new Map()
+        prev.forEach((annotation) => {
+          const gid = Number.isFinite(annotation.group_id) ? annotation.group_id : 0
+          if (!grouped.has(gid)) {
+            grouped.set(gid, [])
+          }
+          grouped.get(gid).push(annotation)
+        })
+
+        const reorderedAnnotations = []
+        const seenAnnotationIds = new Set()
+        reorderedSequence.forEach((gid) => {
+          const groupItems = grouped.get(gid)
+          if (groupItems) {
+            groupItems
+              .slice()
+              .sort((a, b) => a.order - b.order)
+              .forEach((annotation) => {
+                reorderedAnnotations.push(annotation)
+                seenAnnotationIds.add(annotation.id)
+              })
+          }
+        })
+
+        // Append any annotations belonging to groups that might not have been included above (safety net)
+        prev.forEach((annotation) => {
+          if (!seenAnnotationIds.has(annotation.id)) {
+            reorderedAnnotations.push(annotation)
+            seenAnnotationIds.add(annotation.id)
+          }
+        })
+
+        return reorderedAnnotations.map((annotation, index) => ({
+          ...annotation,
+          order: index,
+        }))
+      })
+    },
+    [allowGroupingOperations],
+  )
+
+  const handleSelectGroup = useCallback(
+    (groupId) => {
+      const members = annotations
+        .filter((annotation) => {
+          const resolvedGroup = Number.isFinite(annotation.group_id)
+            ? annotation.group_id
+            : 0
+          return resolvedGroup === groupId
+        })
+        .map((annotation) => annotation.id)
+      if (members.length === 0) {
+        return
+      }
+      setSelectionMode('multi')
+      setSelectedIds(members)
+    },
+    [annotations],
+  )
 
   useEffect(() => {
     const handleResize = () => {
@@ -266,6 +623,14 @@ export default function RecordItemPage({
       }
     }
   }, [])
+
+  useEffect(() => {
+    setSelectionRect(null)
+    if (annotationStage === 'text') {
+      setSelectionMode('single')
+      setSelectedIds((prev) => (prev.length > 0 ? [prev[prev.length - 1]] : []))
+    }
+  }, [annotationStage])
 
   useEffect(() => {
     if (!recordSlug || !workspace) {
@@ -318,7 +683,6 @@ export default function RecordItemPage({
       setAnnotations([])
       setAnnotationsReady(false)
       annotationsInitialised.current = false
-      setDrawingState(null)
       return
     }
     let cancelled = false
@@ -329,21 +693,11 @@ export default function RecordItemPage({
         if (cancelled) {
           return
         }
-        console.log('[DEBUG] Annotations loaded:', {
-          total: payload.annotations?.length || 0,
-          first: payload.annotations?.[0]
-        })
         const normalised = Array.isArray(payload.annotations)
-          ? payload.annotations.map((annotation, index) =>
-              normaliseAnnotation(annotation, index),
-            )
+          ? payload.annotations.map((annotation, index) => normaliseAnnotation(annotation, index))
           : []
-        console.log('[DEBUG] Normalised annotations:', {
-          total: normalised.length,
-          first: normalised[0]
-        })
-        setDrawingState(null)
-        setAnnotations(normalised)
+        const ordered = normaliseGroupsAndOrder(normalised)
+        setAnnotations(ordered)
         setAnnotationsReady(true)
         annotationsInitialised.current = true
         setSaveStatus({
@@ -351,7 +705,7 @@ export default function RecordItemPage({
           updatedAt: payload.updated_at ?? new Date().toISOString(),
           error: null,
         })
-        setSelectedId(normalised[0]?.id ?? null)
+        setSelectedIds(ordered[0] ? [ordered[0].id] : [])
       })
       .catch((err) => {
         if (cancelled) {
@@ -360,14 +714,13 @@ export default function RecordItemPage({
         setAnnotations([])
         setAnnotationsReady(true)
         annotationsInitialised.current = true
-        setDrawingState(null)
         setAnnotationsError(err.message ?? '無法載入標註檔案。')
       })
 
     return () => {
       cancelled = true
     }
-  }, [itemId, workspace])
+  }, [itemId, workspace, normaliseGroupsAndOrder])
 
   const performSave = useCallback(async () => {
     if (!annotationsReady || !itemId) {
@@ -439,7 +792,12 @@ export default function RecordItemPage({
     if (!transformer) {
       return
     }
-    const node = selectedId ? shapeRefs.current[selectedId] : null
+    if (!allowGeometryEditing) {
+      transformer.nodes([])
+      transformer.getLayer()?.batchDraw()
+      return
+    }
+    const node = primarySelectedId ? shapeRefs.current[primarySelectedId] : null
     if (node) {
       transformer.nodes([node])
       transformer.getLayer()?.batchDraw()
@@ -447,34 +805,34 @@ export default function RecordItemPage({
       transformer.nodes([])
       transformer.getLayer()?.batchDraw()
     }
-  }, [selectedId, annotations])
+  }, [primarySelectedId, annotations, allowGeometryEditing])
+
+  const [drawMode, setDrawMode] = useState(false)
+
+  useEffect(() => {
+    if (drawMode) {
+      setSelectionMode('single')
+    }
+  }, [drawMode])
+
+  useEffect(() => {
+    if (!allowGeometryEditing && drawMode) {
+      setDrawMode(false)
+      drawingStateRef.current = null
+    }
+  }, [allowGeometryEditing, drawMode])
 
   const handleAddAnnotation = useCallback(() => {
-    setMode(MODE_DRAW)
-    const imageWidth = pageImage?.width ?? 600
-    const imageHeight = pageImage?.height ?? 600
-    const centerX = Math.max(20, imageWidth / 2 - 120)
-    const centerY = Math.max(20, imageHeight / 2 - 90)
-    const newId = randomId()
-    setAnnotations((prev) => [
-      ...prev,
-      normaliseAnnotation(
-        {
-          id: newId,
-          text: '',
-          x: centerX,
-          y: centerY,
-          width: 240,
-          height: 180,
-          order: prev.length,
-        },
-        prev.length,
-      ),
-    ])
-    setSelectedId(newId)
-  }, [pageImage])
+    if (!allowGeometryEditing) {
+      return
+    }
+    setDrawMode((prev) => !prev)
+  }, [allowGeometryEditing])
 
   const handleUpdateAnnotation = useCallback((id, payload) => {
+    if (!allowGeometryEditing && ('x' in payload || 'y' in payload || 'width' in payload || 'height' in payload || 'rotation' in payload)) {
+      return
+    }
     setAnnotations((prev) =>
       prev.map((annotation) => {
         if (annotation.id !== id) {
@@ -492,28 +850,50 @@ export default function RecordItemPage({
     )
   }, [])
 
-  const handleDeleteAnnotation = useCallback(
-    (id) => {
-      let removed = false
+  const handleDeleteAnnotations = useCallback(
+    (ids) => {
+      const targetIds = Array.isArray(ids) ? ids : [ids]
+      if (!targetIds.length) {
+        return
+      }
+      const targetSet = new Set(targetIds)
       setAnnotations((prev) => {
-        const filtered = prev.filter((annotation) => {
-          const keep = annotation.id !== id
-          if (!keep) {
-            removed = true
-          }
-          return keep
-        })
+        const filtered = prev.filter((annotation) => !targetSet.has(annotation.id))
         return filtered.map((annotation, index) => ({
           ...annotation,
           order: index,
         }))
       })
-      if (removed) {
-        setSelectedId(null)
-      }
+      setSelectedIds([])
     },
-    [setAnnotations],
+    [],
   )
+
+  const handleUpdateAnnotationText = useCallback((id, text) => {
+    setAnnotations((prev) =>
+      prev.map((annotation) => {
+        if (annotation.id !== id) {
+          return annotation
+        }
+        return {
+          ...annotation,
+          text,
+        }
+      }),
+    )
+  }, [])
+
+  const findAnnotationIdByNode = useCallback((node) => {
+    if (!node) {
+      return null
+    }
+    for (const [id, refNode] of Object.entries(shapeRefs.current)) {
+      if (refNode === node) {
+        return id
+      }
+    }
+    return null
+  }, [])
 
   const pointerPositionToImage = useCallback(
     (stage) => {
@@ -529,57 +909,216 @@ export default function RecordItemPage({
     [stageScale],
   )
 
+  const isAdditiveEvent = useCallback(
+    (evt) => {
+      const nativeEvent = evt?.evt ?? evt
+      return (
+        isMultiSelectEnabled ||
+        Boolean(nativeEvent?.shiftKey || nativeEvent?.metaKey || nativeEvent?.ctrlKey)
+      )
+    },
+    [isMultiSelectEnabled],
+  )
+
+  const updateSelection = useCallback((id, { additive } = {}) => {
+    if (!id) {
+      setSelectedIds([])
+      return
+    }
+    setSelectedIds((prev) => {
+      const exists = prev.includes(id)
+      if (additive) {
+        if (exists) {
+          return prev.filter((item) => item !== id)
+        }
+        return [...prev, id]
+      }
+      if (prev.length === 1 && exists) {
+        return prev
+      }
+      return [id]
+    })
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds([])
+  }, [])
+
+  const selectAllAnnotations = useCallback(() => {
+    setSelectedIds(annotations.map((annotation) => annotation.id))
+  }, [annotations])
+
+  const handleSelectAnnotation = useCallback(
+    (id, evt) => {
+      const additive = evt ? isAdditiveEvent(evt) : false
+      updateSelection(id, { additive })
+    },
+    [isAdditiveEvent, updateSelection],
+  )
+
+  const handleReorderAnnotation = useCallback((id, targetIndex) => {
+    setAnnotations((prev) => {
+      const ordered = [...prev].sort((a, b) => a.order - b.order)
+      const currentIndex = ordered.findIndex((annotation) => annotation.id === id)
+      if (currentIndex === -1) {
+        return prev
+      }
+      const clampedIndex = Math.max(0, Math.min(targetIndex, ordered.length - 1))
+      const [target] = ordered.splice(currentIndex, 1)
+      ordered.splice(clampedIndex, 0, target)
+      return ordered.map((annotation, index) => ({
+        ...annotation,
+        order: index,
+      }))
+    })
+    setSelectedIds([id])
+  }, [])
+
+  const handleToggleSelectionMode = useCallback(() => {
+    if (annotationStage === 'text') {
+      return
+    }
+    setSelectionMode((prev) => {
+      if (prev === 'multi') {
+        setSelectedIds((ids) => (ids.length > 0 ? [ids[ids.length - 1]] : []))
+        return 'single'
+      }
+      return 'multi'
+    })
+  }, [annotationStage])
+
+  const handleDeleteSelected = useCallback(() => {
+    if (!allowGeometryEditing || selectedIds.length === 0) {
+      return
+    }
+    handleDeleteAnnotations(selectedIds)
+  }, [allowGeometryEditing, handleDeleteAnnotations, selectedIds])
+
   const handleStagePointerDown = useCallback(
     (event) => {
-      const stage = event.target.getStage()
+      const targetNode = event.target
+      const stage = targetNode.getStage()
       if (!stage) {
         return
       }
+      const clickedAnnotationId = findAnnotationIdByNode(targetNode)
 
-      if (drawingState) {
+      if (drawMode && allowGeometryEditing) {
+        if (targetNode !== stage) {
+          return
+        }
+        const pointer = pointerPositionToImage(stage)
+        if (!pointer) {
+          return
+        }
+        const newId = randomId()
+        setAnnotations((prev) => {
+          const maxGroup = prev.reduce(
+            (max, annotation) =>
+              Math.max(max, Number.isFinite(annotation.group_id) ? annotation.group_id : 0),
+            0,
+          )
+          const created = normaliseAnnotation(
+            {
+              id: newId,
+              text: '',
+              x: pointer.x,
+              y: pointer.y,
+              width: 1,
+              height: 1,
+              order: prev.length,
+              group_id: maxGroup,
+            },
+            prev.length,
+          )
+          return normaliseGroupsAndOrder([...prev, created])
+        })
+        drawingStateRef.current = {
+          id: newId,
+          originX: pointer.x,
+          originY: pointer.y,
+        }
+        setSelectedIds([newId])
         return
       }
 
-      if (event.target !== stage) {
+      if (!clickedAnnotationId && !isMultiSelectEnabled) {
+        clearSelection()
+      }
+      const targetClass = typeof targetNode.getClassName === 'function' ? targetNode.getClassName() : ''
+      const isBackground = !clickedAnnotationId && (targetNode === stage || targetClass === 'Image')
+
+      if (!isBackground) {
         return
       }
 
-      if (mode === MODE_DRAW) {
+      if (isMultiSelectEnabled) {
+        if (!isAdditiveEvent(event)) {
+          clearSelection()
+        }
         const imagePoint = pointerPositionToImage(stage)
         if (!imagePoint) {
           return
         }
-        const newId = randomId()
-        setAnnotations((prev) => [
-          ...prev,
-          {
-            id: newId,
-            text: '',
-            label: 'text',
-            x: imagePoint.x,
-            y: imagePoint.y,
-            width: 1,
-            height: 1,
-            rotation: 0,
-            order: prev.length,
-          },
-        ])
-        setDrawingState({
-          id: newId,
+        setSelectionRect({
           originX: imagePoint.x,
           originY: imagePoint.y,
+          x: imagePoint.x,
+          y: imagePoint.y,
+          active: true,
         })
-        setSelectedId(newId)
       } else {
-        setSelectedId(null)
+        clearSelection()
       }
     },
-    [mode, pointerPositionToImage, setAnnotations, drawingState],
+    [
+      allowGeometryEditing,
+      clearSelection,
+      drawMode,
+      findAnnotationIdByNode,
+      isAdditiveEvent,
+      isMultiSelectEnabled,
+      normaliseGroupsAndOrder,
+      pointerPositionToImage,
+      setAnnotations,
+    ],
   )
 
   const handleStagePointerMove = useCallback(
     (event) => {
-      if (!drawingState) {
+      const drawingState = drawingStateRef.current
+      if (drawingState) {
+        const stage = event.target.getStage()
+        if (!stage) {
+          return
+        }
+        const pointer = pointerPositionToImage(stage)
+        if (!pointer) {
+          return
+        }
+        const deltaX = pointer.x - drawingState.originX
+        const deltaY = pointer.y - drawingState.originY
+        const nextWidth = Math.abs(deltaX)
+        const nextHeight = Math.abs(deltaY)
+        const nextX = deltaX >= 0 ? drawingState.originX : pointer.x
+        const nextY = deltaY >= 0 ? drawingState.originY : pointer.y
+        setAnnotations((prev) =>
+          prev.map((annotation) =>
+            annotation.id === drawingState.id
+              ? {
+                  ...annotation,
+                  x: nextX,
+                  y: nextY,
+                  width: nextWidth,
+                  height: nextHeight,
+                }
+              : annotation,
+          ),
+        )
+        return
+      }
+
+      if (!selectionRect?.active) {
         return
       }
       event.evt?.preventDefault?.()
@@ -591,64 +1130,104 @@ export default function RecordItemPage({
       if (!imagePoint) {
         return
       }
-      const { id, originX, originY } = drawingState
-      const deltaX = imagePoint.x - originX
-      const deltaY = imagePoint.y - originY
-      const nextWidth = Math.abs(deltaX)
-      const nextHeight = Math.abs(deltaY)
-      const nextX = deltaX >= 0 ? originX : imagePoint.x
-      const nextY = deltaY >= 0 ? originY : imagePoint.y
-
-      setAnnotations((prev) =>
-        prev.map((annotation) =>
-          annotation.id === id
-            ? {
-                ...annotation,
-                x: nextX,
-                y: nextY,
-                width: nextWidth,
-                height: nextHeight,
-              }
-            : annotation,
-        ),
+      setSelectionRect((prev) =>
+        prev
+          ? {
+              ...prev,
+              x: imagePoint.x,
+              y: imagePoint.y,
+            }
+          : prev,
       )
     },
-    [drawingState, pointerPositionToImage],
+    [pointerPositionToImage, selectionRect?.active],
   )
 
-  const handleStagePointerUp = useCallback(() => {
-    if (!drawingState) {
-      return
-    }
-    const { id } = drawingState
-    let removedId = null
-    setAnnotations((prev) => {
-      const target = prev.find((annotation) => annotation.id === id)
-      if (!target) {
-        return prev
+  const handleStagePointerUp = useCallback(
+    (event) => {
+      const drawingState = drawingStateRef.current
+      if (drawingState) {
+        let removedId = null
+        setAnnotations((prev) => {
+          const target = prev.find((annotation) => annotation.id === drawingState.id)
+          if (!target) {
+            return prev
+          }
+          if (target.width < MIN_DRAW_SIZE || target.height < MIN_DRAW_SIZE) {
+            removedId = target.id
+            return prev
+              .filter((annotation) => annotation.id !== target.id)
+              .map((annotation, index) => ({
+                ...annotation,
+                order: index,
+              }))
+          }
+          return prev.map((annotation) =>
+            annotation.id === target.id
+              ? {
+                  ...annotation,
+                  width: Math.max(target.width, MIN_DRAW_SIZE),
+                  height: Math.max(target.height, MIN_DRAW_SIZE),
+                }
+              : annotation,
+          )
+        })
+        if (removedId) {
+          setSelectedIds([])
+        }
+        drawingStateRef.current = null
+        return
       }
-      if (target.width < MIN_DRAW_SIZE || target.height < MIN_DRAW_SIZE) {
-        removedId = target.id
-        return prev.filter((annotation) => annotation.id !== target.id).map((annotation, index) => ({
-          ...annotation,
-          order: index,
-        }))
+
+      if (!selectionRect?.active) {
+        return
       }
-      return prev.map((annotation) =>
-        annotation.id === id
-          ? {
-              ...annotation,
-              width: Math.max(annotation.width, MIN_DRAW_SIZE),
-              height: Math.max(annotation.height, MIN_DRAW_SIZE),
-            }
-          : annotation,
-      )
-    })
-    if (removedId) {
-      setSelectedId(null)
-    }
-    setDrawingState(null)
-  }, [drawingState])
+      const stage = event.target.getStage()
+      const imagePoint = stage ? pointerPositionToImage(stage) : null
+      if (imagePoint) {
+        setSelectionRect((prev) =>
+          prev
+            ? {
+                ...prev,
+                x: imagePoint.x,
+                y: imagePoint.y,
+              }
+            : prev,
+        )
+      }
+
+      setSelectionRect((prev) => {
+        if (!prev) {
+          return null
+        }
+        const left = Math.min(prev.originX, prev.x)
+        const right = Math.max(prev.originX, prev.x)
+        const top = Math.min(prev.originY, prev.y)
+        const bottom = Math.max(prev.originY, prev.y)
+
+        if (Math.abs(right - left) < 2 && Math.abs(bottom - top) < 2) {
+          return null
+        }
+
+        const nextSelected = annotations
+          .filter((annotation) => {
+            const aLeft = annotation.x
+            const aRight = annotation.x + annotation.width
+            const aTop = annotation.y
+            const aBottom = annotation.y + annotation.height
+            return left <= aRight && right >= aLeft && top <= aBottom && bottom >= aTop
+          })
+          .map((annotation) => annotation.id)
+
+        if (nextSelected.length > 0) {
+          setSelectedIds(nextSelected)
+        }
+
+        return null
+      })
+    },
+    [annotations, pointerPositionToImage, selectionRect],
+  )
 
   const saveIndicatorMessage = useMemo(() => {
     switch (saveStatus.state) {
@@ -666,9 +1245,8 @@ export default function RecordItemPage({
         return ''
     }
   }, [saveStatus])
-  const canvasClassName = `annotator-canvas ${
-    isDrawMode ? 'annotator-canvas--draw' : 'annotator-canvas--edit'
-  }`
+  const [viewportScale, setViewportScale] = useState(1)
+  const canvasClassName = 'annotator-canvas'
 
   if (!itemId) {
     return (
@@ -709,38 +1287,132 @@ export default function RecordItemPage({
             {pageInfo.page ? ` • 原始尺寸 ${pageImage?.width ?? '…'}×${pageImage?.height ?? '…'}` : ''}
           </p>
         </div>
-        <div className="annotator-header-actions">
-          <div className="annotator-mode-toggle">
-            <button
-              type="button"
-              className={isDrawMode ? 'active' : ''}
-              aria-pressed={isDrawMode}
-              onClick={() => {
-                if (!isDrawMode) {
-                  setMode(MODE_DRAW)
-                }
-              }}
-            >
-              標註模式
-            </button>
-            <button
-              type="button"
-              className={!isDrawMode ? 'active' : ''}
-              aria-pressed={!isDrawMode}
-              onClick={() => {
-                if (isDrawMode) {
-                  setMode(MODE_EDIT)
-                }
-              }}
-            >
-              文字編輯模式
-            </button>
+        <div className="annotator-header__centred">
+          <div className="annotator-mode-toggle" role="group" aria-label="標註階段">
+            {ANNOTATION_STAGES.map((stage) => (
+              <button
+                key={stage.id}
+                type="button"
+                className={`annotator-mode-button${annotationStage === stage.id ? ' active' : ''}`}
+                onClick={() => setAnnotationStage(stage.id)}
+                aria-pressed={annotationStage === stage.id}
+              >
+                {stage.label}
+              </button>
+            ))}
           </div>
+        </div>
+        <div className="annotator-header-actions">
           <button type="button" className="ghost" onClick={handleBackToRecords}>
             返回記錄列表
           </button>
         </div>
       </header>
+
+      <div className="annotator-tools annotator-tools--global">
+        <button
+          type="button"
+          className={`annotator-tool-button${drawMode ? ' active' : ''}`}
+          data-toolbar
+          onClick={handleAddAnnotation}
+          title={drawMode ? '停用繪製模式' : '啟用繪製模式'}
+          disabled={!allowGeometryEditing}
+        >
+          <Pencil size={16} />
+          <span>{drawMode ? '繪製中' : '繪製'}</span>
+        </button>
+        <button
+          type="button"
+          className={`annotator-tool-button${!isMultiSelectEnabled ? ' active' : ''}`}
+          data-toolbar
+          onClick={() => {
+            setSelectionMode('single')
+          }}
+          title="單選編輯標註"
+          aria-pressed={!isMultiSelectEnabled}
+          disabled={drawMode || annotationStage === 'text'}
+        >
+          <MousePointer size={16} />
+          <span>單選</span>
+        </button>
+        <button
+          type="button"
+          className={`annotator-tool-button${isMultiSelectEnabled ? ' active' : ''}`}
+          data-toolbar
+          onClick={handleToggleSelectionMode}
+          title={isMultiSelectEnabled ? '切換為單選' : '啟用多選'}
+          aria-pressed={isMultiSelectEnabled}
+          disabled={drawMode || annotationStage === 'text'}
+        >
+          <BoxSelect size={16} />
+          <span>多選</span>
+        </button>
+        <button
+          type="button"
+          className="annotator-tool-button"
+          data-toolbar
+          onClick={handleCreateGroupFromSelection}
+          title="將選取框組成一個新群組"
+          disabled={drawMode || !allowGroupingOperations || selectedIds.length === 0}
+        >
+          <Layers size={16} />
+          <span>群組</span>
+        </button>
+        <button
+          type="button"
+          className="annotator-tool-button"
+          data-toolbar
+          onClick={handleDeleteSelected}
+          title="刪除選取標註"
+          disabled={drawMode || !hasSelection || !allowGeometryEditing}
+        >
+          <Trash2 size={16} />
+          <span>刪除</span>
+        </button>
+        <button
+          type="button"
+          className="annotator-tool-button"
+          data-toolbar
+          onClick={selectAllAnnotations}
+          title="全選"
+          disabled={drawMode || annotations.length === 0 || selectedIds.length === annotations.length}
+        >
+          <CheckSquare size={16} />
+          <span>全選</span>
+        </button>
+        <button
+          type="button"
+          className="annotator-tool-button"
+          data-toolbar
+          onClick={() => {
+            if (drawMode) {
+              return
+            }
+            setViewportScale((value) => Math.min(3, parseFloat((value + 0.15).toFixed(2))))
+          }}
+          title="放大"
+          disabled={drawMode}
+        >
+          <ZoomIn size={16} />
+          <span>放大</span>
+        </button>
+        <button
+          type="button"
+          className="annotator-tool-button"
+          data-toolbar
+          onClick={() => {
+            if (drawMode) {
+              return
+            }
+            setViewportScale((value) => Math.max(0.4, parseFloat((value - 0.15).toFixed(2))))
+          }}
+          title="縮小"
+          disabled={drawMode}
+        >
+          <ZoomOut size={16} />
+          <span>縮小</span>
+        </button>
+      </div>
 
       {pageInfo.loading ? (
         <div className="annotator-notice">頁面載入中…</div>
@@ -749,7 +1421,11 @@ export default function RecordItemPage({
       {annotationsError ? <div className="annotator-error">{annotationsError}</div> : null}
 
       <div className="annotator-layout">
-        <div className={canvasClassName} ref={stageContainerRef}>
+        <div
+          className={canvasClassName}
+          ref={stageContainerRef}
+          style={{ transform: `scale(${viewportScale})`, transformOrigin: 'top center' }}
+        >
           {pageInfo.page ? (
             <div className="annotator-stage">
               <Stage
@@ -764,7 +1440,7 @@ export default function RecordItemPage({
                 onTouchEnd={handleStagePointerUp}
                 onTouchCancel={handleStagePointerUp}
                 onMouseLeave={handleStagePointerUp}
-                style={{ cursor: isDrawMode ? 'crosshair' : 'default' }}
+                style={{ cursor: 'default' }}
               >
                 <Layer>
                   {pageImage ? (
@@ -781,7 +1457,20 @@ export default function RecordItemPage({
                     const scaledY = annotation.y * stageScale
                     const scaledWidth = Math.max(annotation.width * stageScale, 1)
                     const scaledHeight = Math.max(annotation.height * stageScale, 1)
-
+                    const rawGroupId = Number.isFinite(annotation.group_id) ? annotation.group_id : 0
+                    const groupColor = groupColorMap.get(rawGroupId) ?? '#2563eb'
+                    const isSelected = selectedSet.has(annotation.id)
+                    const strokeColor = isSelected
+                      ? '#2563eb'
+                      : showGroupingColors
+                        ? groupColor
+                        : 'rgba(0, 0, 0, 0.55)'
+                    const fillColor = showGroupingColors
+                      ? hexToRgba(groupColor, isSelected ? 0.35 : 0.16)
+                      : 'rgba(10, 46, 32, 0.18)'
+                    const orderBadgeFill = showGroupingColors
+                      ? hexToRgba(groupColor, 0.85)
+                      : 'rgba(27, 94, 74, 0.9)'
                     return (
                       <Rect
                         key={nodeKey}
@@ -797,34 +1486,45 @@ export default function RecordItemPage({
                         width={scaledWidth}
                         height={scaledHeight}
                         rotation={annotation.rotation}
-                        draggable
-                        stroke={
-                          annotation.id === selectedId ? palette.accent : 'rgba(0, 0, 0, 0.55)'
-                        }
-                        strokeWidth={annotation.id === selectedId ? 3 : 2}
+                        draggable={allowGeometryEditing}
+                        stroke={strokeColor}
+                        strokeWidth={isSelected ? 4 : 2}
                         dashEnabled={false}
-                        fill="rgba(10, 46, 32, 0.18)"
+                        fill={fillColor}
                         onClick={(event) => {
                           event.cancelBubble = true
-                          setSelectedId(annotation.id)
+                          handleSelectAnnotation(annotation.id, event)
                         }}
                         onTap={(event) => {
                           event.cancelBubble = true
-                          setSelectedId(annotation.id)
+                          handleSelectAnnotation(annotation.id, event)
                         }}
                         onDragStart={(event) => {
                           event.cancelBubble = true
-                          setSelectedId(annotation.id)
+                          if (!allowGeometryEditing) {
+                            return
+                          }
+                          updateSelection(annotation.id)
                         }}
                         onDragMove={(event) => {
                           event.cancelBubble = true
                         }}
                         onTransformStart={(event) => {
                           event.cancelBubble = true
-                          setSelectedId(annotation.id)
+                          if (!allowGeometryEditing) {
+                            return
+                          }
+                          updateSelection(annotation.id)
                         }}
                         onDragEnd={(event) => {
                           const node = event.target
+                          if (!allowGeometryEditing) {
+                            node.position({
+                              x: scaledX,
+                              y: scaledY,
+                            })
+                            return
+                          }
                           handleUpdateAnnotation(annotation.id, {
                             x: node.x() / stageScale,
                             y: node.y() / stageScale,
@@ -832,6 +1532,15 @@ export default function RecordItemPage({
                         }}
                         onTransformEnd={(event) => {
                           const node = event.target
+                          if (!allowGeometryEditing) {
+                            node.rotation(annotation.rotation)
+                            node.scaleX(1)
+                            node.scaleY(1)
+                            node.width(scaledWidth)
+                            node.height(scaledHeight)
+                            node.position({ x: scaledX, y: scaledY })
+                            return
+                          }
                           const scaleX = node.scaleX()
                           const scaleY = node.scaleY()
                           node.scaleX(1)
@@ -854,14 +1563,22 @@ export default function RecordItemPage({
                     )
                   })}
                   {annotations.map((annotation, index) => {
-                    const displayOrder = Number.isFinite(annotation.order)
-                      ? annotation.order + 1
-                      : index + 1
-                    const baseX = annotation.x * stageScale
-                    const baseY = annotation.y * stageScale
-                    const fontSize = Math.max(14, 16 * stageScale)
-                    const padding = Math.max(4, 6 * stageScale)
-                    const labelY = Math.max(baseY - (fontSize + padding * 2), 4)
+                  const displayOrder = Number.isFinite(annotation.order)
+                    ? annotation.order + 1
+                    : index + 1
+                  const baseX = annotation.x * stageScale
+                  const baseY = annotation.y * stageScale
+                  const fontSize = Math.max(14, 16 * stageScale)
+                  const padding = Math.max(4, 6 * stageScale)
+                  const labelY = Math.max(baseY - (fontSize + padding * 2), 4)
+                  const rawGroupId = Number.isFinite(annotation.group_id) ? annotation.group_id : 0
+                  const groupColor = groupColorMap.get(rawGroupId) ?? '#2563eb'
+                  const isSelected = selectedSet.has(annotation.id)
+                  const orderBadgeFill = showGroupingColors
+                    ? hexToRgba(groupColor, isSelected ? 0.95 : 0.85)
+                    : isSelected
+                      ? '#2563eb'
+                      : 'rgba(27, 94, 74, 0.9)'
 
                     return (
                       <Label
@@ -871,7 +1588,7 @@ export default function RecordItemPage({
                         listening={false}
                       >
                         <Tag
-                          fill="rgba(27, 94, 74, 0.9)"
+                          fill={orderBadgeFill}
                           cornerRadius={Math.max(6, 8 * stageScale)}
                           shadowColor="rgba(17, 24, 39, 0.25)"
                           shadowBlur={6}
@@ -888,29 +1605,44 @@ export default function RecordItemPage({
                       </Label>
                     )
                   })}
-                  <Transformer
-                    ref={transformerRef}
-                    rotateEnabled
-                    keepRatio={false}
-                    enabledAnchors={[
-                      'top-left',
-                      'top-right',
-                      'bottom-left',
-                      'bottom-right',
-                      'top-center',
-                      'bottom-center',
-                      'middle-left',
-                      'middle-right',
-                    ]}
-                    boundBoxFunc={(oldBox, newBox) => {
-                      const projectedWidth = newBox.width / stageScale
-                      const projectedHeight = newBox.height / stageScale
-                      if (projectedWidth < MIN_DRAW_SIZE || projectedHeight < MIN_DRAW_SIZE) {
-                        return oldBox
-                      }
-                      return newBox
-                    }}
-                  />
+                  {selectionRect?.active ? (
+                    <Rect
+                      x={Math.min(selectionRect.originX, selectionRect.x) * stageScale}
+                      y={Math.min(selectionRect.originY, selectionRect.y) * stageScale}
+                      width={Math.abs(selectionRect.x - selectionRect.originX) * stageScale}
+                      height={Math.abs(selectionRect.y - selectionRect.originY) * stageScale}
+                      stroke="#111827"
+                      strokeWidth={1.5}
+                      dash={[6, 4]}
+                      fill="rgba(17, 24, 39, 0.12)"
+                      listening={false}
+                    />
+                  ) : null}
+                  {allowGeometryEditing ? (
+                    <Transformer
+                      ref={transformerRef}
+                      rotateEnabled
+                      keepRatio={false}
+                      enabledAnchors={[
+                        'top-left',
+                        'top-right',
+                        'bottom-left',
+                        'bottom-right',
+                        'top-center',
+                        'bottom-center',
+                        'middle-left',
+                        'middle-right',
+                      ]}
+                      boundBoxFunc={(oldBox, newBox) => {
+                        const projectedWidth = newBox.width / stageScale
+                        const projectedHeight = newBox.height / stageScale
+                        if (projectedWidth < MIN_DRAW_SIZE || projectedHeight < MIN_DRAW_SIZE) {
+                          return oldBox
+                        }
+                        return newBox
+                      }}
+                    />
+                  ) : null}
                 </Layer>
               </Stage>
             </div>
@@ -922,9 +1654,27 @@ export default function RecordItemPage({
         <aside className="annotator-sidebar" style={{ backgroundColor: palette.surface }}>
           <div className="annotator-sidebar__header">
             <h3>標註清單</h3>
-            <button type="button" onClick={handleAddAnnotation} disabled={!isDrawMode}>
-              新增標註框
-            </button>
+            <div className="annotator-sidebar__view-toggle" role="group" aria-label="清單視圖">
+              {allowGroupingOperations ? (
+                <button
+                  type="button"
+                  className={`annotator-sidebar__view-button${sidebarView === 'groups' ? ' active' : ''}`}
+                  onClick={() => setSidebarView('groups')}
+                  aria-pressed={sidebarView === 'groups'}
+                  disabled={showTextEditor}
+                >
+                  群組
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={`annotator-sidebar__view-button${sidebarView === 'annotations' ? ' active' : ''}`}
+                onClick={() => setSidebarView('annotations')}
+                aria-pressed={sidebarView === 'annotations'}
+              >
+                單一框
+              </button>
+            </div>
           </div>
           <p className="annotator-save-indicator">{saveIndicatorMessage}</p>
           {saveStatus.state === 'error' ? (
@@ -932,25 +1682,127 @@ export default function RecordItemPage({
               重試儲存
             </button>
           ) : null}
+          {sidebarView === 'groups' && !showTextEditor && allowGroupingOperations ? (
+            <div className="annotator-group-panel">
+              <div className="annotator-group-panel__row">
+                <label className="annotator-group-panel__field">
+                  <span>選取框的群組</span>
+                  <select
+                    value={selectionGroupValue}
+                    disabled={!hasSelection}
+                    onChange={(event) => handleSelectionGroupChange(event.target.value)}
+                  >
+                    {selectionGroupId === null ? (
+                      <option value="__mixed__" disabled>
+                        多個群組
+                      </option>
+                    ) : null}
+                    {groupOptions.map((option) => (
+                      <option key={option.id} value={String(option.id)}>
+                        {option.label}
+                      </option>
+                    ))}
+                    <option value="__new__">+ 新增群組</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="annotator-group-panel__button"
+                  onClick={() => setGroupForAnnotations(selectedIds, 'new')}
+                  disabled={!hasSelection}
+                >
+                  建立新群組
+                </button>
+              </div>
+              <div className="annotator-group-order">
+                {groupOptions.map((option, index) => (
+                  <div
+                    key={option.id}
+                    className="annotator-group-order__item"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleSelectGroup(option.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        handleSelectGroup(option.id)
+                      }
+                    }}
+                  >
+                    <span
+                      className="annotator-group-order__badge"
+                      style={{ backgroundColor: option.color }}
+                    >
+                      {option.label}
+                    </span>
+                    <div className="annotator-group-order__actions">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleShiftGroup(option.id, -1)
+                        }}
+                        disabled={index === 0}
+                        aria-label={`${option.label} 上移`}
+                      >
+                        上
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleShiftGroup(option.id, 1)
+                        }}
+                        disabled={index === groupOptions.length - 1}
+                        aria-label={`${option.label} 下移`}
+                      >
+                        下
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="annotator-sidebar__content">
-            {annotations.length === 0 ? (
-              <p className="annotator-placeholder">
-                尚未建立任何標註框，請於「標註模式」下拖曳畫面或點擊上方按鈕新增。
+            {sidebarView === 'annotations' || showTextEditor ? (
+              annotations.length === 0 ? (
+                <p className="annotator-placeholder">
+                  尚未建立任何標註框，請於「標註模式」下拖曳畫面或使用工具列新增。
+                </p>
+              ) : (
+                annotations.map((annotation) => {
+                  const resolvedGroupId = Number.isFinite(annotation.group_id)
+                    ? annotation.group_id
+                    : 0
+                  const cardGroupColor = groupColorMap.get(resolvedGroupId) ?? '#94a3b8'
+                  return (
+                    <AnnotationCard
+                      key={annotation.id}
+                      annotation={annotation}
+                      isSelected={selectedSet.has(annotation.id)}
+                      totalCount={annotations.length}
+                      onSelect={handleSelectAnnotation}
+                      onDelete={handleDeleteAnnotations}
+                      onOrderChange={handleReorderAnnotation}
+                      onUpdateText={handleUpdateAnnotationText}
+                      palette={palette}
+                      allowGrouping={!showTextEditor && allowGroupingOperations}
+                      groupOptions={showTextEditor ? [] : groupOptions}
+                      onGroupChange={handleCardGroupChange}
+                      groupColor={cardGroupColor}
+                      showTextEditor={showTextEditor}
+                      showOrderControls={!showTextEditor}
+                      showDelete={!showTextEditor}
+                    />
+                  )
+                })
+              )
+            ) : sidebarView === 'groups' ? (
+              <p className="annotator-placeholder annotator-placeholder--compact">
+                於左側「群組」檢視調整設定後，可切換回「單一框」檢視。
               </p>
-            ) : (
-              annotations.map((annotation) => (
-                <AnnotationCard
-                  key={annotation.id}
-                  annotation={annotation}
-                  isSelected={annotation.id === selectedId}
-                  onSelect={setSelectedId}
-                  onChange={handleUpdateAnnotation}
-                  onDelete={handleDeleteAnnotation}
-                  palette={palette}
-                  onBeginTextEdit={() => setMode(MODE_EDIT)}
-                />
-              ))
-            )}
+            ) : null}
           </div>
         </aside>
       </div>

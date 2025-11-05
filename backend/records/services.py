@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import tempfile
 import zipfile
@@ -23,6 +24,7 @@ LABELS_DIRNAME = "labels"
 ANNOTATIONS_SCHEMA_VERSION = 1
 METADATA_TEMPLATES_DIRNAME = "metadata_templates"
 DEFAULT_SHAPE_LABEL = "text"
+WORKSPACE_INFO_FILENAME = "workspace.json"
 
 DEFAULT_METADATA_TEMPLATE = {
     "id": "default",
@@ -75,6 +77,7 @@ class Record:
     created_at: datetime
     page_count: int
     source: Optional[Dict[str, str]]
+    has_annotations: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
@@ -82,6 +85,7 @@ class Record:
             "title": self.title,
             "created_at": self.created_at.isoformat(),
             "page_count": self.page_count,
+            "has_annotations": self.has_annotations,
         }
         if self.source:
             payload["source"] = self.source
@@ -105,6 +109,45 @@ def list_workspaces() -> List[Workspace]:
         if child.is_dir() and not child.name.startswith("."):
             workspaces.append(Workspace(slug=child.name, path=child))
     return workspaces
+
+
+def _workspace_info_path(workspace: Workspace) -> Path:
+    return workspace.path / WORKSPACE_INFO_FILENAME
+
+
+def load_workspace_info(workspace: Workspace) -> Dict[str, Any]:
+    info_path = _workspace_info_path(workspace)
+    if not info_path.exists():
+        return {}
+    try:
+        with info_path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return data
+
+
+def update_workspace_info(slug: str, *, title: Optional[str] = None) -> Dict[str, Any]:
+    workspace = get_workspace(slug)
+    info = load_workspace_info(workspace)
+    if title is not None:
+        if not isinstance(title, str):
+            raise WorkspaceError("Workspace title must be a string.")
+        cleaned_title = title.strip()
+        if cleaned_title:
+            info["title"] = cleaned_title
+        else:
+            info.pop("title", None)
+
+    info_path = _workspace_info_path(workspace)
+    try:
+        with info_path.open("w", encoding="utf-8") as fh:
+            json.dump(info, fh, ensure_ascii=False, indent=2)
+    except OSError as exc:
+        raise WorkspaceError(f"Failed to update workspace info: {exc}") from exc
+    return info
 
 
 def _state_payload_path() -> Path:
@@ -298,6 +341,32 @@ def _count_pages(record_path: Path) -> int:
     return count
 
 
+def _has_annotations(workspace: Workspace, record_slug: str) -> bool:
+    """Check if a record has any annotation files with non-empty 'shapes' or 'annotations' arrays."""
+    labels_root = _labels_root(workspace, record_slug)
+    if not labels_root.exists():
+        return False
+
+    # Iterate through .json sidecar files and check their 'shapes' or 'annotations' fields.
+    for path in labels_root.glob("*.json"):
+        if not path.is_file():
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            # Ignore unreadable/invalid files.
+            continue
+        if isinstance(payload, dict):
+            raw_shapes = payload.get("shapes")
+            if isinstance(raw_shapes, list) and len(raw_shapes) > 0:
+                return True
+            raw_annotations = payload.get("annotations")
+            if isinstance(raw_annotations, list) and len(raw_annotations) > 0:
+                return True
+    return False
+
+
 def _parse_created_at(metadata: Dict[str, Any], record_path: Path) -> datetime:
     value = metadata.get("created_at")
     if isinstance(value, str):
@@ -340,6 +409,12 @@ def _shapes_to_annotations(shapes: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         min_y = min(ys)
         max_y = max(ys)
 
+        raw_group_id = shape.get("group_id")
+        if isinstance(raw_group_id, (int, float)) and math.isfinite(raw_group_id):
+            normalised_group_id: Optional[int] = int(raw_group_id)
+        else:
+            normalised_group_id = None
+
         annotation: Dict[str, Any] = {
             "id": shape.get("id") or f"shape-{index}",
             "text": shape.get("text") or "",
@@ -350,6 +425,7 @@ def _shapes_to_annotations(shapes: List[Dict[str, Any]]) -> List[Dict[str, Any]]
             "height": max_y - min_y,
             "rotation": 0.0,
             "order": shape.get("order", index),
+            "group_id": normalised_group_id,
         }
 
         for key, value in shape.items():
@@ -388,12 +464,18 @@ def _annotations_to_shapes(annotations: List[Dict[str, Any]]) -> List[Dict[str, 
             [x, y + height],
         ]
 
+        raw_group_id = annotation.get("group_id")
+        if isinstance(raw_group_id, (int, float)) and math.isfinite(raw_group_id):
+            normalized_group_id: Optional[int] = int(raw_group_id)
+        else:
+            normalized_group_id = None
+
         shape: Dict[str, Any] = {
             "id": annotation.get("id") or f"annotation-{index}",
             "label": annotation.get("label") or annotation.get("text") or DEFAULT_SHAPE_LABEL,
             "text": annotation.get("text") or "",
             "points": points,
-            "group_id": annotation.get("group_id"),
+            "group_id": normalized_group_id,
             "shape_type": annotation.get("shape_type") or "polygon",
             "flags": annotation.get("flags") or {},
             "confidence": annotation.get("confidence"),
@@ -570,6 +652,7 @@ def list_records(workspace: Workspace) -> List[Record]:
         page_count = _count_pages(record_dir)
         created_at = _parse_created_at(metadata, record_dir)
         source = metadata.get("source") if isinstance(metadata.get("source"), dict) else None
+        has_annotations = _has_annotations(workspace, slug)
         records.append(
             Record(
                 slug=slug,
@@ -577,6 +660,7 @@ def list_records(workspace: Workspace) -> List[Record]:
                 created_at=created_at,
                 page_count=page_count,
                 source=source,
+                has_annotations=has_annotations,
             )
         )
     return records
@@ -591,12 +675,14 @@ def get_record(workspace: Workspace, slug: str) -> Record:
     page_count = _count_pages(record_path)
     created_at = _parse_created_at(metadata, record_path)
     source = metadata.get("source") if isinstance(metadata.get("source"), dict) else None
+    has_annotations = _has_annotations(workspace, slug)
     return Record(
         slug=slug,
         title=title,
         created_at=created_at,
         page_count=page_count,
         source=source,
+        has_annotations=has_annotations,
     )
 
 
@@ -730,6 +816,21 @@ def batch_update_items_metadata(
     results["updated_count"] = len(results["updated"])
     results["failed_count"] = len(results["failed"])
     return results
+
+
+def delete_record(workspace: Workspace, slug: str) -> None:
+    """Delete a record and all its associated data."""
+    record_path = _records_root(workspace) / slug
+    if not record_path.exists() or not record_path.is_dir():
+        raise RecordError(f"Record '{slug}' does not exist.")
+
+    # Delete the record directory and all its contents
+    shutil.rmtree(record_path, ignore_errors=False)
+
+    # Delete associated labels/annotations
+    labels_path = _labels_root(workspace, slug)
+    if labels_path.exists():
+        shutil.rmtree(labels_path, ignore_errors=True)
 
 
 def create_record_from_upload(

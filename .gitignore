@@ -35,10 +35,14 @@ Thumbs.db
 .vscode/
 
 # Workspace data (thumbnails, labels, temp files)
+workspace_samples/**           # 忽略所有內容
+!workspace_samples/**/         # 保留資料夾
+!workspace_samples/**/.gitkeep # 保留佔位檔
 workspace_samples/**/.thumbnails/
 workspace_samples/**/labels/
 workspace_samples/**/.locks/
 workspace_samples/**/.history/
+workspace_samples/**/records/
 
 # Generated files for reference/testing
 generated-*.html

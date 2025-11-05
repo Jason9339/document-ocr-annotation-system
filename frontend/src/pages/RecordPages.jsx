@@ -19,6 +19,8 @@ import {
   resolveEntries,
 } from '../utils/metadata.js'
 
+const ENABLE_BATCH_METADATA = false
+
 const PAGE_SIZE = 12
 
 function formatDate(value) {
@@ -535,7 +537,7 @@ export default function RecordPagesPage({
         </div>
       </section>
 
-      {selectedCount > 0 ? (
+      {ENABLE_BATCH_METADATA && selectedCount > 0 ? (
         <section className="batch-metadata-panel">
           <div className="batch-metadata-panel__header">
             <div>

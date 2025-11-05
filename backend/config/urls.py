@@ -32,6 +32,7 @@ from records.views import (
     record_annotations_clear_view,
     records_root,
     record_metadata_view,
+    update_workspace,
 )
 
 urlpatterns = [
@@ -55,6 +56,7 @@ urlpatterns = [
     path('api/v1/workspaces', available_workspaces),
     path('api/v1/workspace', current_workspace),
     path('api/v1/workspace/open', open_workspace),
+    path('api/v1/workspaces/<str:slug>', update_workspace),
     path('api/v1/records', records_root),
     path('api/v1/records/<str:record_slug>', record_detail_view),
     path('api/v1/records/<str:record_slug>/annotations/clear', record_annotations_clear_view),
