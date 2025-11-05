@@ -1,5 +1,7 @@
 # document-ocr-annotation-system
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Jason9339/document-ocr-annotation-system)
+
 A small OCR annotation system (Django backend + React frontend) with example workspace data for local development.
 
 ## Quick start (development)
