@@ -19,6 +19,11 @@ import {
   Layers,
   ZoomIn,
   ZoomOut,
+  ArrowRight,
+  ArrowLeft,
+  ArrowDown,
+  Info,
+  X,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 
@@ -328,7 +333,6 @@ export default function RecordItemPage({
   }, [pageImage, containerSize])
   const stageScale = stageSize.scale || 1
   const isMultiSelectEnabled = selectionMode === 'multi'
-  const primarySelectedId = selectedIds.length > 0 ? selectedIds[selectedIds.length - 1] : null
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
   const selectedAnnotations = useMemo(
     () => annotations.filter((annotation) => selectedSet.has(annotation.id)),
@@ -797,17 +801,25 @@ export default function RecordItemPage({
       transformer.getLayer()?.batchDraw()
       return
     }
-    const node = primarySelectedId ? shapeRefs.current[primarySelectedId] : null
-    if (node) {
-      transformer.nodes([node])
-      transformer.getLayer()?.batchDraw()
+    // Attach transformer only when exactly one box is selected
+    if (selectedIds.length === 1) {
+      const node = shapeRefs.current[selectedIds[0]]
+      if (node) {
+        transformer.nodes([node])
+        transformer.getLayer()?.batchDraw()
+      } else {
+        transformer.nodes([])
+        transformer.getLayer()?.batchDraw()
+      }
     } else {
+      // Multiple or no selection - don't show transformer
       transformer.nodes([])
       transformer.getLayer()?.batchDraw()
     }
-  }, [primarySelectedId, annotations, allowGeometryEditing])
+  }, [selectedIds, annotations, allowGeometryEditing])
 
   const [drawMode, setDrawMode] = useState(false)
+  const [showDirectionHelp, setShowDirectionHelp] = useState(false)
 
   useEffect(() => {
     if (drawMode) {
@@ -994,6 +1006,51 @@ export default function RecordItemPage({
     handleDeleteAnnotations(selectedIds)
   }, [allowGeometryEditing, handleDeleteAnnotations, selectedIds])
 
+  const handleArrangeSelection = useCallback(
+    (direction) => {
+      if (selectedIds.length < 2) {
+        return
+      }
+      setAnnotations((prev) => {
+        const selectedSet = new Set(selectedIds)
+        const selectedAnnotations = prev.filter((ann) => selectedSet.has(ann.id))
+        const otherAnnotations = prev.filter((ann) => !selectedSet.has(ann.id))
+
+        // Sort selected annotations based on direction
+        let sorted = []
+        if (direction === 'left-to-right') {
+          sorted = selectedAnnotations.slice().sort((a, b) => a.x - b.x)
+        } else if (direction === 'right-to-left') {
+          sorted = selectedAnnotations.slice().sort((a, b) => b.x - a.x)
+        } else if (direction === 'top-to-bottom') {
+          sorted = selectedAnnotations.slice().sort((a, b) => a.y - b.y)
+        }
+
+        // Find the minimum order among selected annotations
+        const minOrder = Math.min(...selectedAnnotations.map((ann) => ann.order))
+
+        // Assign new orders to sorted annotations
+        const updatedSelected = sorted.map((ann, index) => ({
+          ...ann,
+          order: minOrder + index,
+        }))
+
+        // Shift other annotations' orders if needed
+        const updatedOthers = otherAnnotations.map((ann) => {
+          if (ann.order >= minOrder && ann.order < minOrder + sorted.length) {
+            return { ...ann, order: ann.order + sorted.length }
+          }
+          return ann
+        })
+
+        // Combine and normalize
+        const combined = [...updatedSelected, ...updatedOthers].sort((a, b) => a.order - b.order)
+        return combined.map((ann, index) => ({ ...ann, order: index }))
+      })
+    },
+    [selectedIds],
+  )
+
   const handleStagePointerDown = useCallback(
     (event) => {
       const targetNode = event.target
@@ -1042,11 +1099,15 @@ export default function RecordItemPage({
         return
       }
 
-      if (!clickedAnnotationId && !isMultiSelectEnabled) {
-        clearSelection()
-      }
       const targetClass = typeof targetNode.getClassName === 'function' ? targetNode.getClassName() : ''
       const isBackground = !clickedAnnotationId && (targetNode === stage || targetClass === 'Image')
+
+      // Don't clear selection if clicking on transformer or its children
+      const isTransformerNode = targetClass === 'Transformer' || targetNode.getParent()?.getClassName?.() === 'Transformer'
+
+      if (!clickedAnnotationId && !isMultiSelectEnabled && !isTransformerNode) {
+        clearSelection()
+      }
 
       if (!isBackground) {
         return
@@ -1245,6 +1306,36 @@ export default function RecordItemPage({
         return ''
     }
   }, [saveStatus])
+
+  const multiSelectionBounds = useMemo(() => {
+    if (selectedIds.length < 2) {
+      return null
+    }
+    const selectedAnnotations = annotations.filter((ann) => selectedSet.has(ann.id))
+    if (selectedAnnotations.length === 0) {
+      return null
+    }
+
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+
+    selectedAnnotations.forEach((ann) => {
+      minX = Math.min(minX, ann.x)
+      minY = Math.min(minY, ann.y)
+      maxX = Math.max(maxX, ann.x + ann.width)
+      maxY = Math.max(maxY, ann.y + ann.height)
+    })
+
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    }
+  }, [selectedIds, annotations, selectedSet])
+
   const [viewportScale, setViewportScale] = useState(1)
   const canvasClassName = 'annotator-canvas'
 
@@ -1426,6 +1517,50 @@ export default function RecordItemPage({
           ref={stageContainerRef}
           style={{ transform: `scale(${viewportScale})`, transformOrigin: 'top center' }}
         >
+          {multiSelectionBounds && selectedIds.length >= 2 && !drawMode ? (
+            <div
+              className="multi-selection-toolbar"
+              style={{
+                position: 'absolute',
+                left: `${multiSelectionBounds.x * stageScale}px`,
+                top: `${Math.max(0, multiSelectionBounds.y * stageScale - 50)}px`,
+                zIndex: 1000,
+              }}
+            >
+              <button
+                type="button"
+                className="multi-selection-toolbar__button"
+                onClick={() => handleArrangeSelection('left-to-right')}
+                title="從左到右排序"
+              >
+                <ArrowRight size={18} />
+              </button>
+              <button
+                type="button"
+                className="multi-selection-toolbar__button"
+                onClick={() => handleArrangeSelection('right-to-left')}
+                title="從右到左排序"
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <button
+                type="button"
+                className="multi-selection-toolbar__button"
+                onClick={() => handleArrangeSelection('top-to-bottom')}
+                title="從上到下排序"
+              >
+                <ArrowDown size={18} />
+              </button>
+              <button
+                type="button"
+                className="multi-selection-toolbar__button multi-selection-toolbar__button--help"
+                onClick={() => setShowDirectionHelp(true)}
+                title="說明"
+              >
+                <Info size={18} />
+              </button>
+            </div>
+          ) : null}
           {pageInfo.page ? (
             <div className="annotator-stage">
               <Stage
@@ -1806,6 +1941,56 @@ export default function RecordItemPage({
           </div>
         </aside>
       </div>
+
+      {showDirectionHelp ? (
+        <div className="direction-help-modal" onClick={() => setShowDirectionHelp(false)}>
+          <div className="direction-help-modal__content" onClick={(e) => e.stopPropagation()}>
+            <div className="direction-help-modal__header">
+              <h3>排序方向說明</h3>
+              <button
+                type="button"
+                className="direction-help-modal__close"
+                onClick={() => setShowDirectionHelp(false)}
+                aria-label="關閉"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="direction-help-modal__body">
+              <div className="direction-help-item">
+                <h4>
+                  <ArrowRight size={20} />
+                  從左到右
+                </h4>
+                <div className="direction-help-item__placeholder">
+                  {/* 在此處添加示意圖 */}
+                  <p>示意圖位置：依照選取框的 X 座標由小到大排序</p>
+                </div>
+              </div>
+              <div className="direction-help-item">
+                <h4>
+                  <ArrowLeft size={20} />
+                  從右到左
+                </h4>
+                <div className="direction-help-item__placeholder">
+                  {/* 在此處添加示意圖 */}
+                  <p>示意圖位置：依照選取框的 X 座標由大到小排序</p>
+                </div>
+              </div>
+              <div className="direction-help-item">
+                <h4>
+                  <ArrowDown size={20} />
+                  從上到下
+                </h4>
+                <div className="direction-help-item__placeholder">
+                  {/* 在此處添加示意圖 */}
+                  <p>示意圖位置：依照選取框的 Y 座標由小到大排序</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
