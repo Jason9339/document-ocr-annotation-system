@@ -526,7 +526,7 @@ export default function RecordsPage({
                       onClick={() => handleOpenRecord('_all')}
                     >
                       <div className="records-table__title">
-                        <div className="records-table__icon" aria-hidden="true" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                        <div className="records-table__icon" aria-hidden="true">
                           <BookOpen size={20} />
                         </div>
                         <div>

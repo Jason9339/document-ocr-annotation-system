@@ -28,6 +28,7 @@ import {
   Sparkles,
   AlertCircle,
   ChevronDown,
+  Download,
   PaintBucket,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
@@ -45,6 +46,39 @@ const GROUP_COLORS = ['#2563eb', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#1
 const TEXT_DIRECTIONS = [
   { id: 'ltr', label: '左→右', title: '左至右閱讀', Icon: ArrowRight },
   { id: 'rtl', label: '右←左', title: '右至左閱讀', Icon: ArrowLeft },
+]
+
+const GUIDE_SECTIONS = [
+  {
+    id: 'layout',
+    title: '框校正',
+    description: '先調整或新增每個文字框，以確保框線位置與大小正確。',
+    bullets: [
+      '使用左側工具列新增或調整框線，支援單選、多選與群組管理。',
+      '多選框後可透過排序工具快速排列，必要時可重新辨識整頁。',
+      '完成框線調整後，再切換到「文字標註」進行文字編輯。',
+    ],
+  },
+  {
+    id: 'text',
+    title: '文字標註',
+    description: '於右側清單直接編輯每個框的文字與朗讀方向。',
+    bullets: [
+      'Enter 跳至下一個框，Shift+Enter 於同框換行。',
+      '朗讀方向支援左→右與右←左，下方「校正後」預覽可確認實際朗讀結果。',
+      '切換群組、排序或刪除框可在此頁完成，系統會自動儲存變更。',
+    ],
+  },
+  {
+    id: 'full',
+    title: '全文檢視',
+    description: '依照框順序與群組將全文串接，可比對排版並下載文字。',
+    bullets: [
+      '提供群組換行、逐框換行、不換行等格式，切換後可立即預覽。',
+      '下載按鈕會輸出目前格式的文字內容，方便後續校稿或引用。',
+      '左側仍可檢視原始影像（不顯示框線），便於對照原稿。',
+    ],
+  },
 ]
 
 function formatTextForDirection(text, direction) {
@@ -196,6 +230,7 @@ function AnnotationCard({
 }) {
   const orderLabel = `#${annotation.order + 1}`
   const currentDirection = annotation.text_direction === 'rtl' ? 'rtl' : 'ltr'
+  const correctedText = formatTextForDirection(annotation.text || '', currentDirection)
   const cardClassName = [
     'annotation-card',
     isSelected ? 'annotation-card--active' : '',
@@ -243,7 +278,6 @@ function AnnotationCard({
               ref={(node) => onRegisterTextInput(annotation.id, node)}
               onKeyDown={(event) => onTextInputKeyDown(annotation.id, event)}
               onFocus={() => onTextInputFocus(annotation.id)}
-              dir={currentDirection === 'rtl' ? 'rtl' : 'ltr'}
             />
           </div>
           <button
@@ -269,24 +303,30 @@ function AnnotationCard({
       ) : null}
       {showTextEditor && directionOpen ? (
         <div className="annotation-card__direction" id={directionPanelId}>
-          <span className="annotation-card__direction-label">文字朗讀順序</span>
-          <div className="annotation-card__direction-buttons" role="group" aria-label="文字朗讀順序">
-            {TEXT_DIRECTIONS.map(({ id, label, title, Icon }) => (
-              <button
-                key={id}
-                type="button"
-                className={`annotation-card__direction-button${currentDirection === id ? ' active' : ''}`}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onUpdateTextDirection(annotation.id, id)
-                }}
-                aria-pressed={currentDirection === id}
-                title={title}
-                aria-label={title}
-              >
-                <Icon size={14} aria-hidden="true" />
-              </button>
-            ))}
+          <div className="annotation-card__direction-header">
+            <span className="annotation-card__direction-label">文字朗讀順序</span>
+            <div className="annotation-card__direction-buttons" role="group" aria-label="文字朗讀順序">
+              {TEXT_DIRECTIONS.map(({ id, label, title, Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`annotation-card__direction-button${currentDirection === id ? ' active' : ''}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onUpdateTextDirection(annotation.id, id)
+                  }}
+                  aria-pressed={currentDirection === id}
+                  title={title}
+                  aria-label={title}
+                >
+                  <Icon size={14} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="annotation-card__direction-preview">
+            <span className="annotation-card__direction-preview-label">校正後</span>
+            <span className="annotation-card__direction-preview-text">{correctedText || '—'}</span>
           </div>
         </div>
       ) : null}
@@ -413,6 +453,7 @@ export default function RecordItemPage({
     error: null,
   })
   const [reOCRing, setReOCRing] = useState(false)
+  const [fullViewFormat, setFullViewFormat] = useState('group-break')
   const autosaveTimerRef = useRef(null)
   const stageContainerRef = useRef(null)
   const stageRef = useRef(null)
@@ -653,6 +694,77 @@ export default function RecordItemPage({
       .filter(Boolean)
   }, [annotationsByGroup, groupSequence, groupOptionLookup, groupColorMap, sortedAnnotations])
 
+  const resolvedFullViewSections = useMemo(() => {
+    if (fullViewSections.length > 0) {
+      return fullViewSections
+    }
+    return [
+      {
+        id: 0,
+        label: '全文',
+        color: '#94a3b8',
+        annotations: sortedAnnotations,
+      },
+    ]
+  }, [fullViewSections, sortedAnnotations])
+
+  const fullViewExportText = useMemo(() => {
+    if (sortedAnnotations.length === 0) {
+      return ''
+    }
+    const normalised = (annotation) =>
+      formatTextForDirection(
+        annotation.text,
+        annotation.text_direction === 'rtl' ? 'rtl' : 'ltr',
+      )
+
+    if (fullViewFormat === 'line-break') {
+      return sortedAnnotations.map((annotation) => normalised(annotation)).join('\n')
+    }
+
+    if (fullViewFormat === 'continuous') {
+      return sortedAnnotations.map((annotation) => normalised(annotation)).join('')
+    }
+
+    const paragraphs = resolvedFullViewSections.map((section) =>
+      section.annotations.map((annotation) => normalised(annotation)).join(''),
+    )
+
+    if (fullViewFormat === 'group-blank') {
+      return paragraphs.join('\n\n')
+    }
+
+    return paragraphs.join('\n')
+  }, [fullViewFormat, sortedAnnotations, resolvedFullViewSections])
+
+  const handleDownloadFullView = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    if (!fullViewExportText) {
+      window.alert('目前沒有可下載的全文內容。')
+      return
+    }
+    const baseName = filename
+      ? filename.replace(/\.[^.]+$/, '')
+      : recordSlug || 'full-view'
+    const suggestedName = `${baseName}-${fullViewFormat}.txt`
+    try {
+      const blob = new Blob([fullViewExportText], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = suggestedName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Failed to download full view', error)
+      window.alert('無法下載全文，請稍後再試。')
+    }
+  }, [fullViewExportText, filename, recordSlug, fullViewFormat])
+
   const renderFullViewContent = () => {
     if (sortedAnnotations.length === 0) {
       return (
@@ -705,17 +817,7 @@ export default function RecordItemPage({
       )
     }
 
-    const sectionsToRender =
-      fullViewSections.length > 0
-        ? fullViewSections
-        : [
-            {
-              id: 0,
-              label: '全文',
-              color: '#94a3b8',
-              annotations: sortedAnnotations,
-            },
-          ]
+    const sectionsToRender = resolvedFullViewSections
 
     return (
       <div className="full-view-groups">
@@ -1163,14 +1265,31 @@ export default function RecordItemPage({
   const [drawMode, setDrawMode] = useState(false)
   const [showDirectionHelp, setShowDirectionHelp] = useState(false)
   const [showAnnotatorGuide, setShowAnnotatorGuide] = useState(false)
-  const [fullViewFormat, setFullViewFormat] = useState('group-break')
+  const [guideStep, setGuideStep] = useState(0)
   const [showBoxFill, setShowBoxFill] = useState(true)
+  const totalGuideSteps = GUIDE_SECTIONS.length
+  const activeGuideIndex = Math.min(Math.max(guideStep, 0), totalGuideSteps - 1)
+  const activeGuide = GUIDE_SECTIONS[activeGuideIndex]
 
   useEffect(() => {
     if (drawMode) {
       setSelectionMode('single')
     }
   }, [drawMode])
+
+  useEffect(() => {
+    if (!showAnnotatorGuide) {
+      setGuideStep(0)
+    }
+  }, [showAnnotatorGuide])
+
+  const handleGuidePrev = useCallback(() => {
+    setGuideStep((prev) => Math.max(0, prev - 1))
+  }, [])
+
+  const handleGuideNext = useCallback(() => {
+    setGuideStep((prev) => Math.min(totalGuideSteps - 1, prev + 1))
+  }, [totalGuideSteps])
 
   useEffect(() => {
     if (!allowGeometryEditing && drawMode) {
@@ -1858,7 +1977,10 @@ export default function RecordItemPage({
           <button
             type="button"
             className="ghost-button annotator-info-button"
-            onClick={() => setShowAnnotatorGuide(true)}
+            onClick={() => {
+              setGuideStep(0)
+              setShowAnnotatorGuide(true)
+            }}
             aria-label="查看本頁說明"
             title="本頁說明"
           >
@@ -2326,6 +2448,18 @@ export default function RecordItemPage({
                   ))}
                 </div>
               </div>
+              <div className="full-view-actions">
+                <button
+                  type="button"
+                  className="full-view-download-button"
+                  onClick={handleDownloadFullView}
+                  disabled={!fullViewExportText}
+                  title="下載目前格式的全文"
+                >
+                  <Download size={16} aria-hidden="true" />
+                  <span>下載全文</span>
+                </button>
+              </div>
               <div className="full-view-preview">{renderFullViewContent()}</div>
             </div>
           ) : (
@@ -2513,15 +2647,43 @@ export default function RecordItemPage({
               </button>
             </div>
             <div className="direction-help-modal__body annotator-guide-body">
-              <p>
-                此頁面可協助你調整框線與文字內容，並控制每個框的朗讀順序。以下是常用操作：
-              </p>
-              <ul>
-                <li>切換至「文字標註」階段後，可直接在右側清單編輯文字。</li>
-                <li>每個文字框可設定「左→右」或「右←左」朗讀方向，適用橫書或右起書寫。</li>
-                <li>按 Enter 跳到下一個框，Shift+Enter 於同框換行。</li>
-                <li>若需要再次辨識，可使用右上角的「重新辨識」按鈕。</li>
-              </ul>
+              <div className="annotator-guide-stepper">
+                <div className="annotator-guide-stepper__header">
+                  <span className="annotator-guide-stepper__title">{activeGuide.title}</span>
+                  <span className="annotator-guide-stepper__counter">
+                    {activeGuideIndex + 1}/{totalGuideSteps}
+                  </span>
+                </div>
+                <p>{activeGuide.description}</p>
+                <ul>
+                  {activeGuide.bullets.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+                <div className="annotator-guide-stepper__dots" role="presentation">
+                  {GUIDE_SECTIONS.map((section, index) => (
+                    <span
+                      key={section.id}
+                      className={`annotator-guide-stepper__dot${index === activeGuideIndex ? ' active' : ''}`}
+                    />
+                  ))}
+                </div>
+                <div className="annotator-guide-stepper__actions">
+                  <button type="button" onClick={handleGuidePrev} disabled={activeGuideIndex === 0}>
+                    上一步
+                  </button>
+                  <button
+                    type="button"
+                    onClick={
+                      activeGuideIndex === totalGuideSteps - 1
+                        ? () => setShowAnnotatorGuide(false)
+                        : handleGuideNext
+                    }
+                  >
+                    {activeGuideIndex === totalGuideSteps - 1 ? '完成' : '下一步'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

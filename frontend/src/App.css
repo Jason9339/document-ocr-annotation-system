@@ -1560,7 +1560,7 @@ body {
 }
 
 .records-table__all-view {
-  background: linear-gradient(135deg, #f5f7ff 0%, #faf5ff 100%);
+  background: #f8fafc;
   border-left: 4px solid #667eea;
 }
 
@@ -2995,11 +2995,19 @@ button.annotator-info-button:focus-visible {
 
 .annotation-card__direction {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: flex-start;
-  gap: 0.5rem;
+  gap: 0.35rem;
   width: 100%;
   margin-top: 0.35rem;
+}
+
+.annotation-card__direction-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  justify-content: flex-start;
   flex-wrap: wrap;
 }
 
@@ -3014,6 +3022,35 @@ button.annotator-info-button:focus-visible {
   gap: 0.35rem;
   justify-content: flex-start;
   flex-wrap: wrap;
+  padding-left: 0.4rem;
+}
+
+.annotation-card__direction-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px dashed rgba(11, 61, 46, 0.25);
+  border-radius: 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.annotation-card__direction-preview-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #2b4f42;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.annotation-card__direction-preview-text {
+  font-size: 0.82rem;
+  color: #0f1f25;
+  white-space: pre-wrap;
+  word-break: break-word;
+  flex: 1;
 }
 
 button.annotation-card__direction-button {
@@ -3098,15 +3135,9 @@ button.annotation-card__direction-toggle:focus-visible {
   line-height: 34px;
   color: #0f1f25;
   background: #fffef9;
-  text-align: left;
   resize: none;
   overflow-y: hidden;
   vertical-align: middle;
-}
-
-.annotation-card__text-editor textarea[dir='rtl'] {
-  direction: rtl;
-  unicode-bidi: bidi-override;
 }
 
 .annotation-card__text-editor textarea:focus-visible {
@@ -3646,6 +3677,37 @@ button.annotator-group-panel__button:disabled {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 0.5rem;
+}
+
+.full-view-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.full-view-download-button {
+  border: 1px solid rgba(11, 61, 46, 0.25);
+  background: #ffffff;
+  color: #0b3d2e;
+  border-radius: 0.75rem;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.full-view-download-button:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: rgba(11, 61, 46, 0.4);
+  transform: translateY(-1px);
+}
+
+.full-view-download-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .full-view-format__button {
@@ -4311,7 +4373,7 @@ button.annotator-group-panel__button:disabled {
 }
 
 .annotator-guide-body p {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.45rem;
   color: #374151;
   font-size: 0.95rem;
 }
@@ -4327,4 +4389,74 @@ button.annotator-group-panel__button:disabled {
 .annotator-guide-body li {
   color: #1f2937;
   font-size: 0.92rem;
+}
+
+.annotator-guide-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.annotator-guide-stepper__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.annotator-guide-stepper__title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f1f25;
+}
+
+.annotator-guide-stepper__counter {
+  font-size: 0.85rem;
+  color: #4b5563;
+}
+
+.annotator-guide-stepper__dots {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  height: 12px;
+}
+
+.annotator-guide-stepper__dot {
+  display: inline-flex;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(11, 61, 46, 0.3);
+}
+
+.annotator-guide-stepper__dot.active {
+  background: #0b3d2e;
+}
+
+.annotator-guide-stepper__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.annotator-guide-stepper__actions button {
+  all: unset;
+  border: 1px solid rgba(11, 61, 46, 0.3);
+  background: #fefefe;
+  color: #0b3d2e;
+  border-radius: 0.6rem;
+  padding: 0.45rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.annotator-guide-stepper__actions button:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+.annotator-guide-stepper__actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
