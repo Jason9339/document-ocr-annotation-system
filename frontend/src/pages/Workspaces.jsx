@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Search, Plus, Folder, ArrowRight, RefreshCw } from 'lucide-react'
+import { Search, Plus, Folder, ArrowRight, RefreshCw, X, Loader2 } from 'lucide-react'
 
 export default function WorkspacesPage({
   workspaceState,
+  onCreateWorkspace,
   onSelectWorkspace,
   onRefreshWorkspaces,
   onNavigate,
@@ -12,6 +13,10 @@ export default function WorkspacesPage({
   const isLoading = Boolean(loading || busy)
   const isEmpty = !isLoading && options.length === 0
   const [searchTerm, setSearchTerm] = useState('')
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [newWorkspace, setNewWorkspace] = useState({ slug: '', title: '' })
+  const [createError, setCreateError] = useState(null)
 
   const filteredOptions = useMemo(() => {
     if (!searchTerm.trim()) {
@@ -62,6 +67,43 @@ export default function WorkspacesPage({
     onNavigate('/records')
   }
 
+  const handleOpenCreateModal = () => {
+    setNewWorkspace({ slug: '', title: '' })
+    setCreateError(null)
+    setShowCreateModal(true)
+  }
+
+  const handleCloseCreateModal = () => {
+    if (creating) return
+    setShowCreateModal(false)
+  }
+
+  const handleCreateSubmit = async (event) => {
+    event.preventDefault()
+    const slug = newWorkspace.slug.trim()
+    const title = newWorkspace.title.trim()
+
+    if (!slug) {
+      setCreateError('工作區 ID 不可為空白')
+      return
+    }
+
+    setCreating(true)
+    setCreateError(null)
+
+    try {
+      const success = await onCreateWorkspace({ slug, title: title || slug })
+      if (success) {
+        setShowCreateModal(false)
+        setNewWorkspace({ slug: '', title: '' })
+      }
+    } catch (error) {
+      setCreateError(error.message || '建立工作區失敗')
+    } finally {
+      setCreating(false)
+    }
+  }
+
   const breadcrumbContainer = document.querySelector('.app-header__breadcrumb')
 
   const breadcrumb = (
@@ -89,7 +131,12 @@ export default function WorkspacesPage({
             <ArrowRight size={16} />
             進入
           </button>
-          <button type="button" disabled className="primary-button disabled">
+          <button
+            type="button"
+            className="primary-button"
+            onClick={handleOpenCreateModal}
+            disabled={isLoading}
+          >
             <Plus size={16} />
             新增工作區
           </button>
@@ -190,6 +237,93 @@ export default function WorkspacesPage({
           )
         })}
       </div>
+
+      {showCreateModal && (
+        <div className="modal-overlay" onClick={handleCloseCreateModal}>
+          <div
+            className="modal-container"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-workspace-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h2 id="create-workspace-title" className="modal-title">
+                  新增工作區
+                </h2>
+                <p className="modal-subtitle">
+                  建立一個新的工作區來管理您的文件標註資料
+                </p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={handleCloseCreateModal}
+                disabled={creating}
+                aria-label="關閉"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateSubmit} className="modal-body">
+              <label className="input">
+                <span>工作區 ID（目錄名稱）*</span>
+                <input
+                  type="text"
+                  value={newWorkspace.slug}
+                  onChange={(e) =>
+                    setNewWorkspace((prev) => ({ ...prev, slug: e.target.value }))
+                  }
+                  placeholder="例如：project-2024"
+                  disabled={creating}
+                  required
+                />
+                <small style={{ color: '#666', marginTop: '4px' }}>
+                  只能包含英文字母、數字、連字號和底線
+                </small>
+              </label>
+
+              <label className="input">
+                <span>顯示名稱（可選）</span>
+                <input
+                  type="text"
+                  value={newWorkspace.title}
+                  onChange={(e) =>
+                    setNewWorkspace((prev) => ({ ...prev, title: e.target.value }))
+                  }
+                  placeholder="例如：2024 專案"
+                  disabled={creating}
+                />
+              </label>
+
+              {createError ? <p className="form-error">{createError}</p> : null}
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={handleCloseCreateModal}
+                  disabled={creating}
+                >
+                  取消
+                </button>
+                <button type="submit" className="primary-button" disabled={creating}>
+                  {creating ? (
+                    <>
+                      <Loader2 size={16} className="spin" />
+                      <span>建立中…</span>
+                    </>
+                  ) : (
+                    '建立工作區'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

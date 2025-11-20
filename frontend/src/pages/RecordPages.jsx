@@ -41,6 +41,7 @@ export default function RecordPagesPage({
   onRefreshWorkspaces,
 }) {
   const recordSlug = params.slug ? decodeURIComponent(params.slug) : null
+  const isAllView = recordSlug === '_all'
   const activeWorkspace = workspaceState.current
   const activeWorkspaceSlug = activeWorkspace?.slug
 
@@ -109,6 +110,22 @@ export default function RecordPagesPage({
       })
       return
     }
+
+    // 如果是完整檢視，跳過 getRecord API 呼叫
+    if (isAllView) {
+      setRecordInfo({
+        loading: false,
+        data: {
+          slug: '_all',
+          title: '完整檢視',
+          page_count: 0,
+          has_annotations: false,
+        },
+        error: null,
+      })
+      return
+    }
+
     let cancelled = false
     setRecordInfo({ loading: true, data: null, error: null })
     api
@@ -137,7 +154,7 @@ export default function RecordPagesPage({
     return () => {
       cancelled = true
     }
-  }, [recordSlug, activeWorkspaceSlug])
+  }, [recordSlug, activeWorkspaceSlug, isAllView])
 
   useEffect(() => {
     if (!recordSlug || !activeWorkspaceSlug) {
@@ -155,7 +172,7 @@ export default function RecordPagesPage({
         pageSize: PAGE_SIZE,
         query,
         sort,
-        record: recordSlug,
+        record: isAllView ? undefined : recordSlug,
         signal: controller.signal,
       })
       .then((payload) => {
@@ -316,7 +333,7 @@ export default function RecordPagesPage({
   }
 
   const handleClearAnnotations = async () => {
-    if (!recordSlug || clearingAnnotations) {
+    if (!recordSlug || clearingAnnotations || isAllView) {
       return
     }
     const confirmed = window.confirm('確定要刪除這本書所有頁面的標註嗎？此操作無法復原。')
@@ -428,8 +445,9 @@ export default function RecordPagesPage({
     }
   }
 
-  const recordTitle =
-    recordInfo.data?.title || recordSlug.replace(/[-_]/g, ' ').trim() || recordSlug
+  const recordTitle = isAllView
+    ? '完整檢視'
+    : recordInfo.data?.title || recordSlug.replace(/[-_]/g, ' ').trim() || recordSlug
 
   const breadcrumbContainer = document.querySelector('.app-header__breadcrumb')
 
@@ -473,15 +491,17 @@ export default function RecordPagesPage({
           </p>
         </div>
         <div className="records-actions">
-          <button
-            type="button"
-            className="ghost-button ghost-button--danger"
-            onClick={handleClearAnnotations}
-            disabled={clearingAnnotations}
-          >
-            <Trash2 size={16} />
-            {clearingAnnotations ? '清除標註中…' : '刪除本書標註'}
-          </button>
+          {!isAllView && (
+            <button
+              type="button"
+              className="ghost-button ghost-button--danger"
+              onClick={handleClearAnnotations}
+              disabled={clearingAnnotations}
+            >
+              <Trash2 size={16} />
+              {clearingAnnotations ? '清除標註中…' : '刪除本書標註'}
+            </button>
+          )}
           <button type="button" className="ghost-button" onClick={() => onNavigate('/records')}>
             <ArrowLeft size={16} />
             返回書籍清單

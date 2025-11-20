@@ -172,6 +172,44 @@ def get_workspace(slug: str) -> Workspace:
     return Workspace(slug=slug, path=path)
 
 
+def create_workspace(slug: str, *, title: Optional[str] = None) -> Workspace:
+    """Create a new workspace with the given slug and optional title."""
+    if not slug or not slug.strip():
+        raise WorkspaceError("Workspace slug cannot be empty.")
+
+    # Validate slug format (alphanumeric, hyphens, underscores only)
+    cleaned_slug = slugify(slug.strip())
+    if not cleaned_slug:
+        raise WorkspaceError("Workspace slug contains invalid characters.")
+
+    workspace_path = WORKSPACE_ROOT / cleaned_slug
+    if workspace_path.exists():
+        raise WorkspaceError(f"Workspace '{cleaned_slug}' already exists.")
+
+    try:
+        # Create workspace directory structure
+        workspace_path.mkdir(parents=True, exist_ok=False)
+        (workspace_path / "records").mkdir(exist_ok=False)
+        (workspace_path / LABELS_DIRNAME).mkdir(exist_ok=False)
+        (workspace_path / ".thumbnails").mkdir(exist_ok=False)
+
+        # Create workspace.json
+        workspace_info = {}
+        if title and title.strip():
+            workspace_info["title"] = title.strip()
+
+        info_path = workspace_path / WORKSPACE_INFO_FILENAME
+        with info_path.open("w", encoding="utf-8") as fh:
+            json.dump(workspace_info, fh, ensure_ascii=False, indent=2)
+
+        return Workspace(slug=cleaned_slug, path=workspace_path)
+    except OSError as exc:
+        # Clean up on failure
+        if workspace_path.exists():
+            shutil.rmtree(workspace_path, ignore_errors=True)
+        raise WorkspaceError(f"Failed to create workspace: {exc}") from exc
+
+
 def get_active_workspace() -> Optional[Workspace]:
     try:
         with WORKSPACE_STATE_FILE.open("r", encoding="utf-8") as fh:

@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from paddleocr import PaddleOCR
+from paddleocr import PaddleOCR, TextRecognition
 
 try:
     import paddleocr
@@ -28,6 +28,12 @@ class OCRService:
     """
 
     _instance: Optional[PaddleOCR] = None
+    _rec_instance: Optional[TextRecognition] = None
+
+    @staticmethod
+    def _resolve_device() -> str:
+        use_gpu_env = os.getenv("USE_GPU", "0").lower()
+        return "gpu" if use_gpu_env in ("1", "true", "yes") else "cpu"
 
     @classmethod
     def get_ocr_engine(cls) -> PaddleOCR:
@@ -42,13 +48,7 @@ class OCRService:
             Configured PaddleOCR instance
         """
         if cls._instance is None:
-            # Check device setting (PaddleOCR 3.x uses 'device' parameter)
-            use_gpu_env = os.getenv("USE_GPU", "0").lower()
-
-            if use_gpu_env in ("1", "true", "yes"):
-                device = "gpu"
-            else:
-                device = "cpu"
+            device = cls._resolve_device()
 
             # Get language setting (default to Traditional Chinese)
             lang = os.getenv("OCR_LANG", "chinese_cht")
@@ -70,6 +70,26 @@ class OCRService:
             print(f"  Language: {lang}")
 
         return cls._instance
+
+    @classmethod
+    def get_text_recognition_engine(cls) -> TextRecognition:
+        """Get or create the singleton PaddleOCR TextRecognition instance."""
+
+        if cls._rec_instance is None:
+            device = cls._resolve_device()
+            rec_model = os.getenv("OCR_REC_MODEL") or None
+
+            cls._rec_instance = TextRecognition(
+                model_name=rec_model,
+                device=device,
+            )
+
+            print("✓ PaddleOCR TextRecognition initialized")
+            print(f"  Device: {device.upper()}")
+            if rec_model:
+                print(f"  Model: {rec_model}")
+
+        return cls._rec_instance
 
     @classmethod
     def run_ocr(cls, image_path: str | Path) -> Dict[str, Any]:

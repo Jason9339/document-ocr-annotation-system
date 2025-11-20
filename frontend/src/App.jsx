@@ -210,6 +210,31 @@ function App() {
     loadWorkspaces()
   }, [loadWorkspaces])
 
+  const handleCreateWorkspace = useCallback(async ({ slug, title }) => {
+    if (!slug) {
+      return false
+    }
+    setWorkspaceBusy(true)
+    try {
+      const payload = await api.createWorkspace({ slug, title })
+      const workspacePayload = payload.workspace
+      setWorkspaceState((prev) => ({
+        ...prev,
+        options: [...prev.options, workspacePayload],
+        error: null,
+      }))
+      return true
+    } catch (error) {
+      setWorkspaceState((prev) => ({
+        ...prev,
+        error: error.message ?? 'Unable to create workspace.',
+      }))
+      return false
+    } finally {
+      setWorkspaceBusy(false)
+    }
+  }, [])
+
   const handleSelectWorkspace = useCallback(async (slug) => {
     if (!slug) {
       return false
@@ -354,6 +379,7 @@ function App() {
             params={route?.params ?? {}}
             onNavigate={navigate}
             workspaceState={workspaceContext}
+            onCreateWorkspace={handleCreateWorkspace}
             onSelectWorkspace={handleSelectWorkspace}
             onRefreshWorkspaces={handleRefreshWorkspaces}
           />

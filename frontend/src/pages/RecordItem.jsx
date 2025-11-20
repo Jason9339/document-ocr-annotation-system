@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import {
   Stage,
   Layer,
@@ -24,6 +25,10 @@ import {
   ArrowDown,
   Info,
   X,
+  Sparkles,
+  AlertCircle,
+  ChevronDown,
+  PaintBucket,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 
@@ -32,9 +37,48 @@ const MIN_DRAW_SIZE = 12
 const ANNOTATION_STAGES = [
   { id: 'layout', label: '框校正' },
   { id: 'text', label: '文字標註' },
+  { id: 'full', label: '全文檢視' },
 ]
 
 const GROUP_COLORS = ['#2563eb', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#14b8a6', '#facc15']
+
+const TEXT_DIRECTIONS = [
+  { id: 'ltr', label: '左→右', title: '左至右閱讀', Icon: ArrowRight },
+  { id: 'rtl', label: '右←左', title: '右至左閱讀', Icon: ArrowLeft },
+]
+
+function formatTextForDirection(text, direction) {
+  if (!text) {
+    return ''
+  }
+  if (direction === 'rtl') {
+    return Array.from(text).reverse().join('')
+  }
+  return text
+}
+
+const FULL_VIEW_FORMATS = [
+  {
+    id: 'group-break',
+    label: '群組換行',
+    description: '同群組緊密串接，群組之間換行',
+  },
+  {
+    id: 'group-blank',
+    label: '群組空行',
+    description: '同群組串接，群組與群組間加入空白列',
+  },
+  {
+    id: 'line-break',
+    label: '逐框換行',
+    description: '每個框各占一行，附上群組標記',
+  },
+  {
+    id: 'continuous',
+    label: '不換行',
+    description: '完全串成單一段落',
+  },
+]
 
 function hexToRgba(hex, alpha) {
   const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
@@ -56,6 +100,10 @@ function groupLabelFromIndex(index) {
     value = Math.floor(value / 26) - 1
   }
   return label || 'A'
+}
+
+function normaliseTextDirection(direction) {
+  return direction === 'rtl' ? 'rtl' : 'ltr'
 }
 
 function randomId() {
@@ -103,22 +151,26 @@ function normaliseAnnotation(annotation, fallbackIndex = 0) {
     rotation: Number.isFinite(annotation.rotation) ? annotation.rotation : 0,
     order: Number.isFinite(annotation.order) ? annotation.order : fallbackIndex,
     group_id: Number.isFinite(annotation.group_id) ? annotation.group_id : 0,
+    text_direction: normaliseTextDirection(annotation.text_direction),
   }
 }
 
 function serialiseAnnotations(annotations) {
-  return annotations.map(({ id, text, label, x, y, width, height, rotation, order, group_id }) => ({
-    id,
-    text,
-    label,
-    x,
-    y,
-    width,
-    height,
-    rotation,
-    order,
-    group_id: Number.isFinite(group_id) ? group_id : 0,
-  }))
+  return annotations.map(
+    ({ id, text, label, x, y, width, height, rotation, order, group_id, text_direction }) => ({
+      id,
+      text,
+      label,
+      x,
+      y,
+      width,
+      height,
+      rotation,
+      order,
+      group_id: Number.isFinite(group_id) ? group_id : 0,
+      text_direction: normaliseTextDirection(text_direction),
+    }),
+  )
 }
 
 function AnnotationCard({
@@ -129,6 +181,7 @@ function AnnotationCard({
   onDelete,
   onOrderChange,
   onUpdateText = () => {},
+  onUpdateTextDirection = () => {},
   palette,
   allowGrouping = false,
   groupOptions = [],
@@ -137,10 +190,26 @@ function AnnotationCard({
   showTextEditor = false,
   showOrderControls = true,
   showDelete = true,
+  onRegisterTextInput = () => {},
+  onTextInputKeyDown = () => {},
+  onTextInputFocus = () => {},
 }) {
+  const orderLabel = `#${annotation.order + 1}`
+  const currentDirection = annotation.text_direction === 'rtl' ? 'rtl' : 'ltr'
+  const cardClassName = [
+    'annotation-card',
+    isSelected ? 'annotation-card--active' : '',
+    showTextEditor ? 'annotation-card--text-mode' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const [directionOpen, setDirectionOpen] = useState(false)
+  const directionPanelId = `annotation-direction-${annotation.id}`
+  const directionToggleColor = directionOpen ? '#fff8ed' : '#0b3d2e'
+
   return (
     <div
-      className={`annotation-card${isSelected ? ' annotation-card--active' : ''}`}
+      className={cardClassName}
       onClick={(event) => {
         event.stopPropagation()
         onSelect(annotation.id, event)
@@ -155,85 +224,144 @@ function AnnotationCard({
       }}
       style={{ borderColor: isSelected ? palette.accent : undefined }}
     >
-      <header>
-        <div className="annotation-card__label">
+      {showTextEditor ? (
+        <div className="annotation-card__text-row">
           <span
             className="annotation-card__group-dot"
             style={{ backgroundColor: groupColor }}
             aria-hidden="true"
           />
-          <span>{annotation.label}</span>
-        </div>
-        <span className="annotation-card__order">#{annotation.order + 1}</span>
-      </header>
-      {showTextEditor ? (
-        <div className="annotation-card__text-editor">
-          <textarea
-            value={annotation.text}
-            onChange={(event) => onUpdateText(annotation.id, event.target.value)}
-            rows={2}
-            placeholder="輸入文字…"
-          />
+          <span className="annotation-card__order annotation-card__order--inline">
+            {orderLabel}
+          </span>
+          <div className="annotation-card__text-editor">
+            <textarea
+              value={annotation.text}
+              onChange={(event) => onUpdateText(annotation.id, event.target.value)}
+              rows={1}
+              placeholder="輸入文字…"
+              ref={(node) => onRegisterTextInput(annotation.id, node)}
+              onKeyDown={(event) => onTextInputKeyDown(annotation.id, event)}
+              onFocus={() => onTextInputFocus(annotation.id)}
+              dir={currentDirection === 'rtl' ? 'rtl' : 'ltr'}
+            />
+          </div>
+          <button
+            type="button"
+            className={`annotation-card__direction-toggle${directionOpen ? ' active' : ''}`}
+            onClick={(event) => {
+              event.stopPropagation()
+              setDirectionOpen((prev) => !prev)
+            }}
+            aria-expanded={directionOpen}
+            aria-controls={directionPanelId}
+            title="切換文字朗讀順序"
+          >
+            <ChevronDown
+              size={16}
+              strokeWidth={2.6}
+              aria-hidden="true"
+              color={directionToggleColor}
+              className={`annotation-card__direction-toggle-icon${directionOpen ? ' open' : ''}`}
+            />
+          </button>
         </div>
       ) : null}
-      <div className="annotation-card__controls">
-        <div className="annotation-card__extras">
-          {allowGrouping ? (
-            <label className="annotation-card__group-control">
-              <span>群組</span>
-              <div className="annotation-card__group-select">
-                <span
-                  className="annotation-card__group-dot annotation-card__group-dot--inline"
-                  style={{ backgroundColor: groupColor }}
-                  aria-hidden="true"
-                />
-                <select
-                  value={
-                    Number.isFinite(annotation.group_id)
-                      ? String(annotation.group_id)
-                      : '0'
-                  }
-                  onChange={(event) => onGroupChange(annotation.id, event.target.value)}
-                >
-                  {groupOptions.map((option) => (
-                    <option key={option.id} value={String(option.id)}>
-                      {option.label}
-                    </option>
-                  ))}
-                  <option value="__new__">+ 新增群組</option>
-                </select>
-              </div>
-            </label>
-          ) : null}
-          {showOrderControls ? (
-            <label className="annotation-card__order-control">
-              <span>請選擇插入位置</span>
-              <select
-                value={annotation.order}
-                onChange={(event) => onOrderChange(annotation.id, Number(event.target.value))}
+      {showTextEditor && directionOpen ? (
+        <div className="annotation-card__direction" id={directionPanelId}>
+          <span className="annotation-card__direction-label">文字朗讀順序</span>
+          <div className="annotation-card__direction-buttons" role="group" aria-label="文字朗讀順序">
+            {TEXT_DIRECTIONS.map(({ id, label, title, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                className={`annotation-card__direction-button${currentDirection === id ? ' active' : ''}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onUpdateTextDirection(annotation.id, id)
+                }}
+                aria-pressed={currentDirection === id}
+                title={title}
+                aria-label={title}
               >
-                {Array.from({ length: totalCount }, (_, index) => (
-                  <option key={index} value={index}>
-                    #{index + 1}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {showDelete ? (
-            <button
-              type="button"
-              className="annotation-card__delete"
-              onClick={(event) => {
-                event.stopPropagation()
-                onDelete([annotation.id])
-              }}
-            >
-              刪除
-            </button>
-          ) : null}
+                <Icon size={14} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
+      {!showTextEditor ? (
+        <>
+          <header className="annotation-card__header">
+            <div className="annotation-card__chip">
+              <span
+                className="annotation-card__group-dot"
+                style={{ backgroundColor: groupColor }}
+                aria-hidden="true"
+              />
+              <span className="annotation-card__order">{orderLabel}</span>
+            </div>
+          </header>
+          <div className="annotation-card__controls">
+            <div className="annotation-card__extras">
+              {allowGrouping ? (
+                <label className="annotation-card__group-control">
+                  <span>群組</span>
+                  <div className="annotation-card__group-select">
+                    <span
+                      className="annotation-card__group-dot annotation-card__group-dot--inline"
+                      style={{ backgroundColor: groupColor }}
+                      aria-hidden="true"
+                    />
+                    <select
+                      value={
+                        Number.isFinite(annotation.group_id)
+                          ? String(annotation.group_id)
+                          : '0'
+                      }
+                      onChange={(event) => onGroupChange(annotation.id, event.target.value)}
+                    >
+                      {groupOptions.map((option) => (
+                        <option key={option.id} value={String(option.id)}>
+                          {option.label}
+                        </option>
+                      ))}
+                      <option value="__new__">+ 新增群組</option>
+                    </select>
+                  </div>
+                </label>
+              ) : null}
+              {showOrderControls ? (
+                <label className="annotation-card__order-control">
+                  <span>請選擇插入位置</span>
+                  <select
+                    value={annotation.order}
+                    onChange={(event) => onOrderChange(annotation.id, Number(event.target.value))}
+                  >
+                    {Array.from({ length: totalCount }, (_, index) => (
+                      <option key={index} value={index}>
+                        #{index + 1}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {showDelete ? (
+                <button
+                  type="button"
+                  className="annotation-card__delete"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onDelete([annotation.id])
+                  }}
+                >
+                  刪除
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -284,12 +412,16 @@ export default function RecordItemPage({
     updatedAt: null,
     error: null,
   })
+  const [reOCRing, setReOCRing] = useState(false)
   const autosaveTimerRef = useRef(null)
   const stageContainerRef = useRef(null)
   const stageRef = useRef(null)
   const transformerRef = useRef(null)
   const shapeRefs = useRef({})
+  const textInputRefs = useRef({})
   const drawingStateRef = useRef(null)
+  const textStageInitRef = useRef(false)
+  const [activeTextId, setActiveTextId] = useState(null)
   const [containerSize, setContainerSize] = useState({ width: 960, height: 640 })
 
   const workspace = workspaceState.current
@@ -301,6 +433,39 @@ export default function RecordItemPage({
       onNavigate('/records')
     }
   }, [onNavigate, recordSlug])
+
+  const handleReOCR = useCallback(async () => {
+    if (!itemId || reOCRing) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      '確定要重新辨識這個頁面嗎？\n\n' +
+      '⚠️ 注意：這將會：\n' +
+      '1. 保留目前所有的框與位置\n' +
+      '2. 只重新辨識各框內的文字並覆蓋現有內容\n' +
+      '3. 覆蓋所有手動輸入或修改過的文字\n' +
+      '4. 啟動辨識工作後將返回列表頁面\n\n' +
+      '辨識完成後可重新進入查看結果。'
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setReOCRing(true)
+
+    try {
+      await api.reOCRItem(itemId)
+      alert('重新辨識工作已啟動！\n\n辨識完成後，請重新進入此頁面查看結果。')
+
+      // 退出標註頁面
+      handleBackToRecords()
+    } catch (error) {
+      alert('啟動重新辨識失敗：' + (error.message || '請稍後再試'))
+      setReOCRing(false)
+    }
+  }, [itemId, reOCRing, handleBackToRecords])
 
   const pageImage = usePageImage(pageInfo.page?.original_url)
 
@@ -333,10 +498,32 @@ export default function RecordItemPage({
   }, [pageImage, containerSize])
   const stageScale = stageSize.scale || 1
   const isMultiSelectEnabled = selectionMode === 'multi'
+  const showTextEditor = annotationStage === 'text'
+  const showFullView = annotationStage === 'full'
+  const showLayoutInsertControls = annotationStage === 'layout'
+  const toolbarLocked = annotationStage !== 'layout'
+  const allowGeometryEditing = annotationStage === 'layout'
+  const allowGroupingOperations = annotationStage === 'layout'
+  const canvasClassName = `annotator-canvas${showFullView ? ' annotator-canvas--full-view' : ''}`
+  const annotatorLayoutClassName = ['annotator-layout']
+  if (showTextEditor) {
+    annotatorLayoutClassName.push('annotator-layout--text-stage')
+  }
+  if (showFullView) {
+    annotatorLayoutClassName.push('annotator-layout--full-stage')
+  }
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
+  const currentTextSelectionId = showTextEditor
+    ? activeTextId ?? (selectedIds.length > 0 ? selectedIds[selectedIds.length - 1] : null)
+    : null
   const selectedAnnotations = useMemo(
-    () => annotations.filter((annotation) => selectedSet.has(annotation.id)),
-    [annotations, selectedSet],
+    () =>
+      annotations.filter((annotation) =>
+        showTextEditor
+          ? annotation.id === currentTextSelectionId
+          : selectedSet.has(annotation.id),
+      ),
+    [annotations, currentTextSelectionId, selectedSet, showTextEditor],
   )
   const selectionGroupId = useMemo(() => {
     if (selectedAnnotations.length === 0) {
@@ -352,11 +539,7 @@ export default function RecordItemPage({
     return uniform ? firstGroup : null
   }, [selectedAnnotations])
   const selectionGroupValue = selectionGroupId === null ? '__mixed__' : String(selectionGroupId)
-  const hasSelection = selectedIds.length > 0
-  const allowGeometryEditing = annotationStage !== 'text'
-  const allowGroupingOperations = annotationStage !== 'text'
-  const showTextEditor = annotationStage === 'text'
-  const showLayoutInsertControls = annotationStage === 'layout'
+  const hasSelection = showTextEditor ? Boolean(currentTextSelectionId) : selectedIds.length > 0
 
   useEffect(() => {
     if (showTextEditor || !allowGroupingOperations) {
@@ -365,6 +548,14 @@ export default function RecordItemPage({
       setSidebarView((prev) => (prev === 'annotations' ? 'groups' : prev))
     }
   }, [showTextEditor, allowGroupingOperations])
+
+  useEffect(() => {
+    if (!showTextEditor) {
+      textInputRefs.current = {}
+      textStageInitRef.current = false
+      setActiveTextId(null)
+    }
+  }, [showTextEditor])
   const groupIds = useMemo(() => {
     const ids = new Set()
     annotations.forEach((annotation) => {
@@ -407,6 +598,157 @@ export default function RecordItemPage({
     [groupSequence, groupColorMap],
   )
   const showGroupingColors = groupOptions.length > 0
+  const groupOptionLookup = useMemo(() => {
+    const map = new Map()
+    groupOptions.forEach((option) => {
+      map.set(option.id, option)
+    })
+    return map
+  }, [groupOptions])
+
+  const sortedAnnotations = useMemo(
+    () =>
+      [...annotations]
+        .map((annotation, index) => ({
+          ...annotation,
+          order: Number.isFinite(annotation.order) ? annotation.order : index,
+          group_id: Number.isFinite(annotation.group_id) ? annotation.group_id : 0,
+        }))
+        .sort((a, b) => a.order - b.order),
+    [annotations],
+  )
+
+  const annotationsByGroup = useMemo(() => {
+    const map = new Map()
+    sortedAnnotations.forEach((annotation) => {
+      const gid = Number.isFinite(annotation.group_id) ? annotation.group_id : 0
+      if (!map.has(gid)) {
+        map.set(gid, [])
+      }
+      map.get(gid).push(annotation)
+    })
+    return map
+  }, [sortedAnnotations])
+
+  const fullViewSections = useMemo(() => {
+    if (sortedAnnotations.length === 0) {
+      return []
+    }
+    const sequence =
+      groupSequence.length > 0 ? groupSequence : Array.from(annotationsByGroup.keys())
+    return sequence
+      .map((gid, index) => {
+        const annotationsInGroup = annotationsByGroup.get(gid) ?? []
+        if (annotationsInGroup.length === 0) {
+          return null
+        }
+        const option = groupOptionLookup.get(gid)
+        return {
+          id: gid,
+          label: option?.label ?? groupLabelFromIndex(index),
+          color: option?.color ?? groupColorMap.get(gid) ?? '#94a3b8',
+          annotations: annotationsInGroup,
+        }
+      })
+      .filter(Boolean)
+  }, [annotationsByGroup, groupSequence, groupOptionLookup, groupColorMap, sortedAnnotations])
+
+  const renderFullViewContent = () => {
+    if (sortedAnnotations.length === 0) {
+      return (
+        <p className="annotator-placeholder">
+          尚未建立任何標註框，完成框校正後即可在此預覽全文。
+        </p>
+      )
+    }
+
+    if (fullViewFormat === 'line-break') {
+      return (
+        <div className="full-view-lines">
+          {sortedAnnotations.map((annotation) => {
+            const groupId = Number.isFinite(annotation.group_id) ? annotation.group_id : 0
+            const option = groupOptionLookup.get(groupId)
+            const badgeLabel = option?.label ?? '—'
+            const badgeColor = option?.color ?? '#94a3b8'
+            const displayText = formatTextForDirection(
+              annotation.text,
+              annotation.text_direction === 'rtl' ? 'rtl' : 'ltr',
+            )
+            return (
+              <div key={`line-${annotation.id}`} className="full-view-line">
+                <span className="full-view-line__badge" style={{ backgroundColor: badgeColor }}>
+                  {badgeLabel}
+                </span>
+                <span className="full-view-line__text" dir="ltr">
+                  {displayText || '\u00A0'}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )
+    }
+
+    if (fullViewFormat === 'continuous') {
+      return (
+        <p className="full-view-continuous">
+          {sortedAnnotations.map((annotation) => (
+            <span
+              key={`continuous-${annotation.id}`}
+              className="full-view__inline"
+              dir={annotation.text_direction === 'rtl' ? 'rtl' : 'ltr'}
+            >
+              {annotation.text}
+            </span>
+          ))}
+        </p>
+      )
+    }
+
+    const sectionsToRender =
+      fullViewSections.length > 0
+        ? fullViewSections
+        : [
+            {
+              id: 0,
+              label: '全文',
+              color: '#94a3b8',
+              annotations: sortedAnnotations,
+            },
+          ]
+
+    return (
+      <div className="full-view-groups">
+        {sectionsToRender.map((section, index) => (
+          <article key={section.id} className="full-view-group">
+            <header className="full-view-group__header">
+              <span
+                className="full-view-group__badge"
+                style={{ backgroundColor: section.color }}
+              >
+                {section.label}
+              </span>
+              <span className="full-view-group__meta">{section.annotations.length} 個框</span>
+            </header>
+            <p className="full-view__paragraph">
+              {section.annotations.map((annotation) => (
+                <span
+                  key={`group-${section.id}-${annotation.id}`}
+                  className="full-view__inline"
+                  dir={annotation.text_direction === 'rtl' ? 'rtl' : 'ltr'}
+                >
+                  {annotation.text}
+                </span>
+              ))}
+            </p>
+            {fullViewFormat === 'group-blank' && index < sectionsToRender.length - 1 ? (
+              <div className="full-view__separator" aria-hidden="true" />
+            ) : null}
+          </article>
+        ))}
+      </div>
+    )
+  }
 
   const normaliseGroupsAndOrder = useCallback((items) => {
     const ordered = items
@@ -820,6 +1162,9 @@ export default function RecordItemPage({
 
   const [drawMode, setDrawMode] = useState(false)
   const [showDirectionHelp, setShowDirectionHelp] = useState(false)
+  const [showAnnotatorGuide, setShowAnnotatorGuide] = useState(false)
+  const [fullViewFormat, setFullViewFormat] = useState('group-break')
+  const [showBoxFill, setShowBoxFill] = useState(true)
 
   useEffect(() => {
     if (drawMode) {
@@ -895,6 +1240,21 @@ export default function RecordItemPage({
     )
   }, [])
 
+  const handleUpdateAnnotationDirection = useCallback((id, direction) => {
+    const resolved = direction === 'rtl' ? 'rtl' : 'ltr'
+    setAnnotations((prev) =>
+      prev.map((annotation) => {
+        if (annotation.id !== id) {
+          return annotation
+        }
+        return {
+          ...annotation,
+          text_direction: resolved,
+        }
+      }),
+    )
+  }, [])
+
   const findAnnotationIdByNode = useCallback((node) => {
     if (!node) {
       return null
@@ -964,8 +1324,11 @@ export default function RecordItemPage({
     (id, evt) => {
       const additive = evt ? isAdditiveEvent(evt) : false
       updateSelection(id, { additive })
+      if (annotationStage === 'text' && !additive && id) {
+        setActiveTextId(id)
+      }
     },
-    [isAdditiveEvent, updateSelection],
+    [annotationStage, isAdditiveEvent, updateSelection, setActiveTextId],
   )
 
   const handleReorderAnnotation = useCallback((id, targetIndex) => {
@@ -1050,6 +1413,105 @@ export default function RecordItemPage({
     },
     [selectedIds],
   )
+
+  const focusTextInputById = useCallback(
+    (annotationId) => {
+      if (!annotationId) {
+        return false
+      }
+      flushSync(() => {
+        setActiveTextId(annotationId)
+        setSelectedIds([annotationId])
+      })
+      const target = textInputRefs.current[annotationId]
+      if (target && typeof target.focus === 'function') {
+        target.focus()
+        const cursorPos = target.value ? target.value.length : 0
+        if (typeof target.setSelectionRange === 'function') {
+          target.setSelectionRange(cursorPos, cursorPos)
+        }
+        return true
+      }
+      return false
+    },
+    [setActiveTextId, setSelectedIds],
+  )
+
+  const registerTextInput = useCallback(
+    (annotationId, node) => {
+      if (!showTextEditor) {
+        return
+      }
+      if (node) {
+        textInputRefs.current[annotationId] = node
+      } else {
+        delete textInputRefs.current[annotationId]
+      }
+    },
+    [showTextEditor],
+  )
+
+  const focusNextTextInput = useCallback(
+    (currentId) => {
+      if (!showTextEditor) {
+        return
+      }
+      const currentIndex = annotations.findIndex((annotation) => annotation.id === currentId)
+      if (currentIndex === -1) {
+        return
+      }
+      const nextAnnotation = annotations[currentIndex + 1]
+      if (!nextAnnotation) {
+        return
+      }
+      focusTextInputById(nextAnnotation.id)
+    },
+    [annotations, showTextEditor, focusTextInputById],
+  )
+
+  const handleTextInputKeyDown = useCallback(
+    (annotationId, event) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault()
+        event.stopPropagation()
+        focusNextTextInput(annotationId)
+      }
+    },
+    [focusNextTextInput],
+  )
+
+  const handleTextInputFocus = useCallback(
+    (annotationId) => {
+      if (!showTextEditor) {
+        return
+      }
+      flushSync(() => {
+        setActiveTextId(annotationId)
+        setSelectedIds([annotationId])
+      })
+    },
+    [showTextEditor, setActiveTextId, setSelectedIds],
+  )
+
+  useEffect(() => {
+    if (!showTextEditor) {
+      return
+    }
+    if (textStageInitRef.current) {
+      return
+    }
+    const firstAnnotation = annotations[0]
+    if (!firstAnnotation) {
+      return
+    }
+    textStageInitRef.current = true
+    const scheduleFocus = () => focusTextInputById(firstAnnotation.id)
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(scheduleFocus)
+    } else {
+      scheduleFocus()
+    }
+  }, [annotations, showTextEditor, focusTextInputById])
 
   const handleStagePointerDown = useCallback(
     (event) => {
@@ -1337,7 +1799,6 @@ export default function RecordItemPage({
   }, [selectedIds, annotations, selectedSet])
 
   const [viewportScale, setViewportScale] = useState(1)
-  const canvasClassName = 'annotator-canvas'
 
   if (!itemId) {
     return (
@@ -1394,7 +1855,29 @@ export default function RecordItemPage({
           </div>
         </div>
         <div className="annotator-header-actions">
-          <button type="button" className="ghost" onClick={handleBackToRecords}>
+          <button
+            type="button"
+            className="ghost-button annotator-info-button"
+            onClick={() => setShowAnnotatorGuide(true)}
+            aria-label="查看本頁說明"
+            title="本頁說明"
+          >
+            <AlertCircle size={16} />
+            <span>說明</span>
+          </button>
+          {annotationStage === 'text' && (
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={handleReOCR}
+              disabled={reOCRing}
+              title="重新辨識目前框內的文字（會覆蓋文字內容）"
+            >
+              <Sparkles size={16} />
+              <span>{reOCRing ? '啟動中…' : '重新辨識'}</span>
+            </button>
+          )}
+          <button type="button" className="ghost-button" onClick={handleBackToRecords}>
             返回記錄列表
           </button>
         </div>
@@ -1407,7 +1890,7 @@ export default function RecordItemPage({
           data-toolbar
           onClick={handleAddAnnotation}
           title={drawMode ? '停用繪製模式' : '啟用繪製模式'}
-          disabled={!allowGeometryEditing}
+          disabled={!allowGeometryEditing || toolbarLocked}
         >
           <Pencil size={16} />
           <span>{drawMode ? '繪製中' : '繪製'}</span>
@@ -1421,7 +1904,7 @@ export default function RecordItemPage({
           }}
           title="單選編輯標註"
           aria-pressed={!isMultiSelectEnabled}
-          disabled={drawMode || annotationStage === 'text'}
+          disabled={drawMode || toolbarLocked}
         >
           <MousePointer size={16} />
           <span>單選</span>
@@ -1433,7 +1916,7 @@ export default function RecordItemPage({
           onClick={handleToggleSelectionMode}
           title={isMultiSelectEnabled ? '切換為單選' : '啟用多選'}
           aria-pressed={isMultiSelectEnabled}
-          disabled={drawMode || annotationStage === 'text'}
+          disabled={drawMode || toolbarLocked}
         >
           <BoxSelect size={16} />
           <span>多選</span>
@@ -1444,10 +1927,22 @@ export default function RecordItemPage({
           data-toolbar
           onClick={handleCreateGroupFromSelection}
           title="將選取框組成一個新群組"
-          disabled={drawMode || !allowGroupingOperations || selectedIds.length === 0}
+          disabled={drawMode || !allowGroupingOperations || selectedIds.length === 0 || toolbarLocked}
         >
           <Layers size={16} />
           <span>群組</span>
+        </button>
+        <button
+          type="button"
+          className={`annotator-tool-button${showBoxFill ? ' active' : ''}`}
+          data-toolbar
+          onClick={() => setShowBoxFill((prev) => !prev)}
+          title={showBoxFill ? '隱藏框填色' : '顯示框填色'}
+          aria-pressed={showBoxFill}
+          disabled={showFullView}
+        >
+          <PaintBucket size={16} />
+          <span>{showBoxFill ? '填色開' : '填色關'}</span>
         </button>
         <button
           type="button"
@@ -1455,7 +1950,7 @@ export default function RecordItemPage({
           data-toolbar
           onClick={handleDeleteSelected}
           title="刪除選取標註"
-          disabled={drawMode || !hasSelection || !allowGeometryEditing}
+          disabled={drawMode || !hasSelection || !allowGeometryEditing || toolbarLocked}
         >
           <Trash2 size={16} />
           <span>刪除</span>
@@ -1466,7 +1961,12 @@ export default function RecordItemPage({
           data-toolbar
           onClick={selectAllAnnotations}
           title="全選"
-          disabled={drawMode || annotations.length === 0 || selectedIds.length === annotations.length}
+          disabled={
+            drawMode ||
+            annotations.length === 0 ||
+            selectedIds.length === annotations.length ||
+            toolbarLocked
+          }
         >
           <CheckSquare size={16} />
           <span>全選</span>
@@ -1511,13 +2011,13 @@ export default function RecordItemPage({
       {pageInfo.error ? <div className="annotator-error">{pageInfo.error}</div> : null}
       {annotationsError ? <div className="annotator-error">{annotationsError}</div> : null}
 
-      <div className="annotator-layout">
-        <div
-          className={canvasClassName}
-          ref={stageContainerRef}
-          style={{ transform: `scale(${viewportScale})`, transformOrigin: 'top center' }}
-        >
-          {multiSelectionBounds && selectedIds.length >= 2 && !drawMode ? (
+      <div className={annotatorLayoutClassName.join(' ')}>
+        <div className={canvasClassName} ref={stageContainerRef}>
+          <div
+            className="annotator-canvas__viewport"
+            style={{ transform: `scale(${viewportScale})`, transformOrigin: 'top center' }}
+          >
+          {multiSelectionBounds && selectedIds.length >= 2 && !drawMode && !showFullView ? (
             <div
               className="multi-selection-toolbar"
               style={{
@@ -1567,14 +2067,14 @@ export default function RecordItemPage({
                 width={stageSize.width}
                 height={stageSize.height}
                 ref={stageRef}
-                onMouseDown={handleStagePointerDown}
-                onTouchStart={handleStagePointerDown}
-                onMouseMove={handleStagePointerMove}
-                onTouchMove={handleStagePointerMove}
-                onMouseUp={handleStagePointerUp}
-                onTouchEnd={handleStagePointerUp}
-                onTouchCancel={handleStagePointerUp}
-                onMouseLeave={handleStagePointerUp}
+                onMouseDown={showFullView ? undefined : handleStagePointerDown}
+                onTouchStart={showFullView ? undefined : handleStagePointerDown}
+                onMouseMove={showFullView ? undefined : handleStagePointerMove}
+                onTouchMove={showFullView ? undefined : handleStagePointerMove}
+                onMouseUp={showFullView ? undefined : handleStagePointerUp}
+                onTouchEnd={showFullView ? undefined : handleStagePointerUp}
+                onTouchCancel={showFullView ? undefined : handleStagePointerUp}
+                onMouseLeave={showFullView ? undefined : handleStagePointerUp}
                 style={{ cursor: 'default' }}
               >
                 <Layer>
@@ -1586,27 +2086,32 @@ export default function RecordItemPage({
                       listening={false}
                     />
                   ) : null}
-                  {annotations.map((annotation) => {
-                    const nodeKey = annotation.id
-                    const scaledX = annotation.x * stageScale
+                  {!showFullView &&
+                    annotations.map((annotation) => {
+                      const nodeKey = annotation.id
+                      const scaledX = annotation.x * stageScale
                     const scaledY = annotation.y * stageScale
                     const scaledWidth = Math.max(annotation.width * stageScale, 1)
                     const scaledHeight = Math.max(annotation.height * stageScale, 1)
                     const rawGroupId = Number.isFinite(annotation.group_id) ? annotation.group_id : 0
                     const groupColor = groupColorMap.get(rawGroupId) ?? '#2563eb'
-                    const isSelected = selectedSet.has(annotation.id)
+                    const isSelected = showTextEditor
+                      ? annotation.id === currentTextSelectionId
+                      : selectedSet.has(annotation.id)
                     const strokeColor = isSelected
-                      ? '#2563eb'
+                      ? '#dc2626'
                       : showGroupingColors
-                        ? groupColor
-                        : 'rgba(0, 0, 0, 0.55)'
-                    const fillColor = showGroupingColors
-                      ? hexToRgba(groupColor, isSelected ? 0.35 : 0.16)
+                        ? hexToRgba(groupColor, 0.45)
+                        : 'rgba(0, 0, 0, 0.35)'
+                    const baseFillColor = showGroupingColors
+                      ? hexToRgba(groupColor, 0.16)
                       : 'rgba(10, 46, 32, 0.18)'
+                    const fillColor =
+                      isSelected || !showBoxFill ? 'transparent' : baseFillColor
                     const orderBadgeFill = showGroupingColors
                       ? hexToRgba(groupColor, 0.85)
                       : 'rgba(27, 94, 74, 0.9)'
-                    return (
+                      return (
                       <Rect
                         key={nodeKey}
                         ref={(node) => {
@@ -1623,7 +2128,11 @@ export default function RecordItemPage({
                         rotation={annotation.rotation}
                         draggable={allowGeometryEditing}
                         stroke={strokeColor}
-                        strokeWidth={isSelected ? 4 : 2}
+                        strokeWidth={isSelected ? 5 : 1.2}
+                        shadowEnabled={isSelected}
+                        shadowColor={isSelected ? '#dc2626' : strokeColor}
+                        shadowBlur={isSelected ? 18 : 0}
+                        shadowOpacity={isSelected ? 0.9 : 0}
                         dashEnabled={false}
                         fill={fillColor}
                         onClick={(event) => {
@@ -1695,27 +2204,30 @@ export default function RecordItemPage({
                           })
                         }}
                       />
-                    )
-                  })}
-                  {annotations.map((annotation, index) => {
-                  const displayOrder = Number.isFinite(annotation.order)
-                    ? annotation.order + 1
-                    : index + 1
+                      )
+                    })}
+                  {!showFullView &&
+                    annotations.map((annotation, index) => {
+                      const displayOrder = Number.isFinite(annotation.order)
+                        ? annotation.order + 1
+                        : index + 1
                   const baseX = annotation.x * stageScale
                   const baseY = annotation.y * stageScale
-                  const fontSize = Math.max(14, 16 * stageScale)
-                  const padding = Math.max(4, 6 * stageScale)
+                  const fontSize = Math.max(12, 14 * stageScale)
+                  const padding = Math.max(4, 5 * stageScale)
                   const labelY = Math.max(baseY - (fontSize + padding * 2), 4)
                   const rawGroupId = Number.isFinite(annotation.group_id) ? annotation.group_id : 0
                   const groupColor = groupColorMap.get(rawGroupId) ?? '#2563eb'
-                  const isSelected = selectedSet.has(annotation.id)
+                  const isSelected = showTextEditor
+                    ? annotation.id === currentTextSelectionId
+                    : selectedSet.has(annotation.id)
                   const orderBadgeFill = showGroupingColors
                     ? hexToRgba(groupColor, isSelected ? 0.95 : 0.85)
                     : isSelected
-                      ? '#2563eb'
+                      ? '#dc2626'
                       : 'rgba(27, 94, 74, 0.9)'
 
-                    return (
+                      return (
                       <Label
                         key={`${annotation.id}-order`}
                         x={baseX - padding}
@@ -1738,9 +2250,9 @@ export default function RecordItemPage({
                           padding={padding}
                         />
                       </Label>
-                    )
-                  })}
-                  {selectionRect?.active ? (
+                      )
+                    })}
+                  {selectionRect?.active && !showFullView ? (
                     <Rect
                       x={Math.min(selectionRect.originX, selectionRect.x) * stageScale}
                       y={Math.min(selectionRect.originY, selectionRect.y) * stageScale}
@@ -1785,8 +2297,39 @@ export default function RecordItemPage({
             <div className="annotator-placeholder">尚未選取頁面或頁面載入失敗。</div>
           )}
         </div>
+        </div>
 
-        <aside className="annotator-sidebar" style={{ backgroundColor: palette.surface }}>
+        <aside
+          className={`annotator-sidebar${showFullView ? ' annotator-sidebar--full-view' : ''}`}
+          style={{ backgroundColor: palette.surface }}
+        >
+          {showFullView ? (
+            <div className="full-view-panel">
+              <div className="full-view-panel__intro">
+                <h3>全文檢視</h3>
+                <p>依照框順序快速檢查整頁文字，預設依群組換段。</p>
+              </div>
+              <div className="full-view-format">
+                <span className="full-view-format__label">顯示格式</span>
+                <div className="full-view-format__options" role="group" aria-label="全文檢視格式">
+                  {FULL_VIEW_FORMATS.map((format) => (
+                    <button
+                      key={format.id}
+                      type="button"
+                      className={`full-view-format__button${fullViewFormat === format.id ? ' active' : ''}`}
+                      onClick={() => setFullViewFormat(format.id)}
+                      aria-pressed={fullViewFormat === format.id}
+                    >
+                      <span className="full-view-format__title">{format.label}</span>
+                      <span className="full-view-format__description">{format.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="full-view-preview">{renderFullViewContent()}</div>
+            </div>
+          ) : (
+            <>
           <div className="annotator-sidebar__header">
             <h3>標註清單</h3>
             <div className="annotator-sidebar__view-toggle" role="group" aria-label="清單視圖">
@@ -1812,6 +2355,9 @@ export default function RecordItemPage({
             </div>
           </div>
           <p className="annotator-save-indicator">{saveIndicatorMessage}</p>
+          {showTextEditor ? (
+            <p className="annotator-text-hint">按 Enter 跳到下一格，Shift+Enter 換行。</p>
+          ) : null}
           {saveStatus.state === 'error' ? (
             <button type="button" className="ghost" onClick={performSave}>
               重試儲存
@@ -1915,12 +2461,17 @@ export default function RecordItemPage({
                     <AnnotationCard
                       key={annotation.id}
                       annotation={annotation}
-                      isSelected={selectedSet.has(annotation.id)}
+                      isSelected={
+                        showTextEditor
+                          ? annotation.id === currentTextSelectionId
+                          : selectedSet.has(annotation.id)
+                      }
                       totalCount={annotations.length}
                       onSelect={handleSelectAnnotation}
                       onDelete={handleDeleteAnnotations}
                       onOrderChange={handleReorderAnnotation}
                       onUpdateText={handleUpdateAnnotationText}
+                      onUpdateTextDirection={handleUpdateAnnotationDirection}
                       palette={palette}
                       allowGrouping={!showTextEditor && allowGroupingOperations}
                       groupOptions={showTextEditor ? [] : groupOptions}
@@ -1929,6 +2480,9 @@ export default function RecordItemPage({
                       showTextEditor={showTextEditor}
                       showOrderControls={!showTextEditor}
                       showDelete={!showTextEditor}
+                      onRegisterTextInput={registerTextInput}
+                      onTextInputKeyDown={handleTextInputKeyDown}
+                      onTextInputFocus={handleTextInputFocus}
                     />
                   )
                 })
@@ -1939,9 +2493,39 @@ export default function RecordItemPage({
               </p>
             ) : null}
           </div>
+            </>
+          )}
         </aside>
       </div>
 
+      {showAnnotatorGuide ? (
+        <div className="direction-help-modal" onClick={() => setShowAnnotatorGuide(false)}>
+          <div className="direction-help-modal__content" onClick={(e) => e.stopPropagation()}>
+            <div className="direction-help-modal__header">
+              <h3>標註頁面說明</h3>
+              <button
+                type="button"
+                className="direction-help-modal__close"
+                onClick={() => setShowAnnotatorGuide(false)}
+                aria-label="關閉"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="direction-help-modal__body annotator-guide-body">
+              <p>
+                此頁面可協助你調整框線與文字內容，並控制每個框的朗讀順序。以下是常用操作：
+              </p>
+              <ul>
+                <li>切換至「文字標註」階段後，可直接在右側清單編輯文字。</li>
+                <li>每個文字框可設定「左→右」或「右←左」朗讀方向，適用橫書或右起書寫。</li>
+                <li>按 Enter 跳到下一個框，Shift+Enter 於同框換行。</li>
+                <li>若需要再次辨識，可使用右上角的「重新辨識」按鈕。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {showDirectionHelp ? (
         <div className="direction-help-modal" onClick={() => setShowDirectionHelp(false)}>
           <div className="direction-help-modal__content" onClick={(e) => e.stopPropagation()}>

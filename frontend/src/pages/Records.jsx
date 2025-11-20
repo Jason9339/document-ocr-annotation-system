@@ -517,6 +517,31 @@ export default function RecordsPage({
                 </tr>
               </thead>
               <tbody>
+                {/* 完整檢視 */}
+                <tr key="_all" className="records-table__all-view">
+                  <td colSpan="7">
+                    <button
+                      type="button"
+                      className="records-table__all-view-button"
+                      onClick={() => handleOpenRecord('_all')}
+                    >
+                      <div className="records-table__title">
+                        <div className="records-table__icon" aria-hidden="true" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                          <BookOpen size={20} />
+                        </div>
+                        <div>
+                          <div className="records-table__name" style={{ fontWeight: 600 }}>
+                            完整檢視
+                          </div>
+                          <div className="records-table__meta">
+                            查看所有書籍的全部頁面（共 {totalPages} 頁）
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronRight size={20} style={{ marginLeft: 'auto', color: '#667eea' }} />
+                    </button>
+                  </td>
+                </tr>
                 {filteredRecords.map((record) => {
                   const actionMenuOpen = openActionMenu === record.slug
                   const actionMenuId = `record-actions-${record.slug}`

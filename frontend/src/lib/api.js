@@ -47,6 +47,19 @@ export async function getCurrentWorkspace() {
   return fetchJSON('/api/v1/workspace')
 }
 
+export async function createWorkspace({ slug, title }) {
+  if (!slug) {
+    throw new Error('workspace slug is required')
+  }
+  return fetchJSON('/api/v1/workspaces/create', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ slug, title }),
+  })
+}
+
 export async function openWorkspace(slug) {
   return fetchJSON('/api/v1/workspace/open', {
     method: 'POST',
@@ -140,6 +153,12 @@ export async function updateItemAnnotations(itemId, payload) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
+  })
+}
+
+export async function reOCRItem(itemId) {
+  return fetchJSON(`/api/v1/items/${encodeItemId(itemId)}/reocr`, {
+    method: 'POST',
   })
 }
 
@@ -247,6 +266,7 @@ export async function clearJobs({ status = ['finished', 'failed', 'canceled'] } 
 export const api = {
   getWorkspaces,
   getCurrentWorkspace,
+  createWorkspace,
   openWorkspace,
   updateWorkspace,
   getItems,
@@ -256,6 +276,7 @@ export const api = {
   clearRecordAnnotations,
   getItemAnnotations,
   updateItemAnnotations,
+  reOCRItem,
   getRecordMetadata,
   updateRecordMetadata,
   getItemMetadata,

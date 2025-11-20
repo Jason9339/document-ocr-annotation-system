@@ -17,9 +17,10 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from annotations.views import health, enqueue_test, job_status
-from jobs.views import job_cancel, job_detail, job_retry, jobs_collection, jobs_clear
+from jobs.views import job_cancel, job_detail, job_retry, jobs_collection, jobs_clear, item_reocr
 from records.views import (
     available_workspaces,
+    create_workspace_view,
     current_workspace,
     item_annotations_view,
     item_metadata_batch_view,
@@ -52,8 +53,12 @@ urlpatterns = [
     path('api/v1/jobs/<str:job_id>/retry', job_retry),
     path('api/v1/jobs/<str:job_id>/cancel', job_cancel),
 
+    # Item Re-OCR
+    path('api/v1/items/<path:item_id>/reocr', item_reocr),
+
     # Workspace / Items
     path('api/v1/workspaces', available_workspaces),
+    path('api/v1/workspaces/create', create_workspace_view),
     path('api/v1/workspace', current_workspace),
     path('api/v1/workspace/open', open_workspace),
     path('api/v1/workspaces/<str:slug>', update_workspace),

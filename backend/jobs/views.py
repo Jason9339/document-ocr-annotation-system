@@ -11,8 +11,8 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from jobs.models import Job
 from jobs.queue import get_queue
 from jobs.services import create_job, get_job, list_jobs, serialize_job
-from jobs.tasks import run_record_ocr_job
-from records.services import RecordError, WorkspaceError, get_active_workspace, get_record
+from jobs.tasks import run_record_ocr_job, run_item_reocr_job
+from records.services import RecordError, WorkspaceError, get_active_workspace, get_record, get_item
 
 
 def _json_error(message: str, *, status: int = 400) -> JsonResponse:
@@ -171,3 +171,42 @@ def jobs_clear(request):
         "deleted_count": deleted_count,
         "message": f"已刪除 {deleted_count} 個工作記錄"
     })
+
+
+@csrf_exempt
+@require_POST
+def item_reocr(request, item_id: str):
+    """Re-run OCR recognition on a single item using existing annotated boxes."""
+    try:
+        workspace = _get_active_workspace_or_error()
+    except WorkspaceError as exc:
+        return _json_error(str(exc), status=400)
+
+    # Verify item exists
+    try:
+        item = get_item(workspace, item_id)
+    except Exception as exc:
+        return _json_error(f"找不到頁面: {str(exc)}", status=404)
+
+    # Create job
+    created_by = request.user.username if getattr(request, "user", None) and request.user.is_authenticated else ""
+    job = create_job(
+        workspace_slug=workspace.slug,
+        record_slug=item.record,
+        record_title=f"{item.record} - 重新辨識",
+        job_type="reocr",
+        created_by=created_by,
+    )
+
+    # Enqueue task
+    queue = get_queue()
+    rq_job = queue.enqueue(
+        run_item_reocr_job,
+        str(job.id),
+        workspace.slug,
+        item_id,
+    )
+    job.rq_job_id = rq_job.id
+    job.save(update_fields=["rq_job_id", "updated_at"])
+
+    return _job_payload(job, status=201)

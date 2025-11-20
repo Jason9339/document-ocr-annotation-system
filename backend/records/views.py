@@ -14,6 +14,7 @@ from .services import (
     WorkspaceError,
     batch_update_items_metadata,
     create_record_from_upload,
+    create_workspace,
     delete_record,
     filter_items,
     get_active_workspace,
@@ -107,6 +108,27 @@ def open_workspace(request):
         return JsonResponse({"ok": False, "error": str(exc)}, status=404)
 
     return JsonResponse({"ok": True, "workspace": _workspace_payload(workspace)})
+
+
+@csrf_exempt
+@require_POST
+def create_workspace_view(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON payload.")
+
+    slug = payload.get("slug")
+    if not slug:
+        return HttpResponseBadRequest("Missing 'slug' field.")
+
+    title = payload.get("title")
+
+    try:
+        workspace = create_workspace(slug, title=title)
+        return JsonResponse({"ok": True, "workspace": _workspace_payload(workspace)}, status=201)
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
 
 @csrf_exempt
