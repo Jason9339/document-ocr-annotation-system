@@ -36,6 +36,32 @@ Common commands:
 - Run backend tests: docker compose exec api python manage.py test
 - Install frontend package: docker compose exec web npm install <pkg>
 
+## System Walkthrough
+
+### 1. Management Dashboard
+Manage workspaces, upload books, and track OCR tasks.
+
+| Workspace Overview | Book Management |
+| :---: | :---: |
+| ![Workspace](docs/images/ui-01-workspace.png) | ![Book List](docs/images/ui-02-book-mgmt.png) |
+| **Job Progress Tracking** | **Image Gallery** |
+| ![Jobs](docs/images/ui-03-jobs.png) | ![Gallery](docs/images/ui-04-gallery.png) |
+
+### 2. Annotation & Correction
+Interactive tools for correcting layout, reading order, and text content.
+
+#### Layout & Reading Order
+Support for complex vertical layouts and manual ordering.
+![BBox Correction](docs/images/ui-05-bbox.png)
+
+#### Text Proofreading
+Efficient text correction with "focus mode" (highlighting current box).
+![Text Editing](docs/images/ui-06-text-edit.png)
+
+#### Structured Export
+View full text and export structured data (JSON/Text).
+![Export View](docs/images/ui-07-export.png)
+
 ## Project structure
 
 Top-level layout:
