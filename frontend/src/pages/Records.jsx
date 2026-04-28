@@ -127,8 +127,8 @@ export default function RecordsPage({
   if (workspaceState.loading) {
     return (
       <section className="page">
-        <h2>Records</h2>
-        <p>Loading workspace list…</p>
+        <h2 className="page-title">Records</h2>
+        <p className="page-copy">Loading workspace list…</p>
       </section>
     )
   }

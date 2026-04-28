@@ -194,7 +194,7 @@ export default function RecordPagesPage({
       .finally(() => setLoading(false))
 
     return () => controller.abort()
-  }, [page, query, sort, recordSlug, activeWorkspaceSlug, reloadToken])
+  }, [page, query, sort, recordSlug, activeWorkspaceSlug, reloadToken, isAllView])
 
   const totalPages = useMemo(() => {
     if (!pagination.total || !pagination.page_size) {
@@ -238,8 +238,8 @@ export default function RecordPagesPage({
   if (workspaceState.loading) {
     return (
       <section className="page">
-        <h2>Record Pages</h2>
-        <p>Loading workspace list…</p>
+        <h2 className="page-title">Record Pages</h2>
+        <p className="page-copy">Loading workspace list…</p>
       </section>
     )
   }
@@ -249,13 +249,13 @@ export default function RecordPagesPage({
       <section className="page record-pages">
         <header className="records-header">
           <div>
-            <h2>請先選擇 Workspace</h2>
+            <h2 className="page-title">請先選擇 Workspace</h2>
             <p className="records-summary">
               前往 Workspace 清單後選擇欲瀏覽的 Workspace，再回到此頁。
             </p>
           </div>
           <div className="records-header__actions">
-            <button type="button" onClick={() => onNavigate('/workspaces')}>
+            <button type="button" className="primary-button" onClick={() => onNavigate('/workspaces')}>
               前往 Workspace 清單
             </button>
           </div>
@@ -277,9 +277,9 @@ export default function RecordPagesPage({
   if (!recordSlug) {
     return (
       <section className="page">
-        <h2>Record Pages</h2>
-        <p>Record slug 未提供，請返回記錄列表。</p>
-        <button type="button" onClick={() => onNavigate('/records')}>
+        <h2 className="page-title">Record Pages</h2>
+        <p className="page-copy">Record slug 未提供，請返回記錄列表。</p>
+        <button type="button" className="primary-button" onClick={() => onNavigate('/records')}>
           Back to records
         </button>
       </section>
@@ -742,7 +742,6 @@ export default function RecordPagesPage({
           </button>
           {paginationPages.map((entry, index) =>
             entry === 'ellipsis' ? (
-              // eslint-disable-next-line react/no-array-index-key
               <span key={`ellipsis-${index}`} className="record-pages__pagination-ellipsis">
                 …
               </span>

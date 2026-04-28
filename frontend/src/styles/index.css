@@ -1,0 +1,9 @@
+@import './base.css';
+@import './layout.css';
+@import './ui.css';
+@import './pages/workspaces.css';
+@import './pages/records.css';
+@import './pages/record-pages.css';
+@import './pages/jobs.css';
+@import './pages/metadata.css';
+@import './pages/annotator.css';

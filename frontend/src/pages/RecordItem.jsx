@@ -306,22 +306,25 @@ function AnnotationCard({
           <div className="annotation-card__direction-header">
             <span className="annotation-card__direction-label">文字朗讀順序</span>
             <div className="annotation-card__direction-buttons" role="group" aria-label="文字朗讀順序">
-              {TEXT_DIRECTIONS.map(({ id, label, title, Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={`annotation-card__direction-button${currentDirection === id ? ' active' : ''}`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onUpdateTextDirection(annotation.id, id)
-                  }}
-                  aria-pressed={currentDirection === id}
-                  title={title}
-                  aria-label={title}
-                >
-                  <Icon size={14} aria-hidden="true" />
-                </button>
-              ))}
+              {TEXT_DIRECTIONS.map((direction) => {
+                const DirectionIcon = direction.Icon
+                return (
+                  <button
+                    key={direction.id}
+                    type="button"
+                    className={`annotation-card__direction-button${currentDirection === direction.id ? ' active' : ''}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onUpdateTextDirection(annotation.id, direction.id)
+                    }}
+                    aria-pressed={currentDirection === direction.id}
+                    title={direction.title}
+                    aria-label={direction.title}
+                  >
+                    <DirectionIcon size={14} aria-hidden="true" />
+                  </button>
+                )
+              })}
             </div>
           </div>
           <div className="annotation-card__direction-preview">
@@ -541,7 +544,6 @@ export default function RecordItemPage({
   const isMultiSelectEnabled = selectionMode === 'multi'
   const showTextEditor = annotationStage === 'text'
   const showFullView = annotationStage === 'full'
-  const showLayoutInsertControls = annotationStage === 'layout'
   const toolbarLocked = annotationStage !== 'layout'
   const allowGeometryEditing = annotationStage === 'layout'
   const allowGroupingOperations = annotationStage === 'layout'
@@ -1070,7 +1072,7 @@ export default function RecordItemPage({
         window.removeEventListener('resize', handleResize)
       }
     }
-  }, [])
+  }, [allowGeometryEditing])
 
   useEffect(() => {
     setSelectionRect(null)
@@ -1324,7 +1326,7 @@ export default function RecordItemPage({
         return next
       }),
     )
-  }, [])
+  }, [allowGeometryEditing])
 
   const handleDeleteAnnotations = useCallback(
     (ids) => {
@@ -1922,9 +1924,9 @@ export default function RecordItemPage({
   if (!itemId) {
     return (
       <section className="page annotator-page">
-        <h2>標註頁面</h2>
-        <p>頁面識別碼不正確，請返回列表重新選擇。</p>
-        <button type="button" onClick={handleBackToRecords}>
+        <h2 className="page-title">標註頁面</h2>
+        <p className="page-copy">頁面識別碼不正確，請返回列表重新選擇。</p>
+        <button type="button" className="primary-button" onClick={handleBackToRecords}>
           返回記錄列表
         </button>
       </section>
@@ -1934,10 +1936,10 @@ export default function RecordItemPage({
   if (!workspace) {
     return (
       <section className="page annotator-page">
-        <h2>標註頁面</h2>
-        <p>請先前往 Workspace 清單，選擇欲瀏覽的 Workspace 後再進入標註介面。</p>
+        <h2 className="page-title">標註頁面</h2>
+        <p className="page-copy">請先前往 Workspace 清單，選擇欲瀏覽的 Workspace 後再進入標註介面。</p>
         <div className="annotator-actions">
-          <button type="button" onClick={() => onNavigate('/workspaces')}>
+          <button type="button" className="primary-button" onClick={() => onNavigate('/workspaces')}>
             前往 Workspace 清單
           </button>
           <button type="button" onClick={onRefreshWorkspaces} className="ghost">
@@ -2230,9 +2232,6 @@ export default function RecordItemPage({
                       : 'rgba(10, 46, 32, 0.18)'
                     const fillColor =
                       isSelected || !showBoxFill ? 'transparent' : baseFillColor
-                    const orderBadgeFill = showGroupingColors
-                      ? hexToRgba(groupColor, 0.85)
-                      : 'rgba(27, 94, 74, 0.9)'
                       return (
                       <Rect
                         key={nodeKey}

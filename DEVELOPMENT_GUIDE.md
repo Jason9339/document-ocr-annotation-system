@@ -32,7 +32,12 @@ document-ocr-annotation-system/
 ├── frontend/                  # React 前端
 │   ├── src/
 │   │   ├── App.jsx            # 主應用程式元件
-│   │   ├── App.css            # 全域樣式
+│   │   ├── styles/            # CSS 分層入口與頁面樣式
+│   │   │   ├── index.css      # 樣式入口
+│   │   │   ├── base.css       # reset / root / body
+│   │   │   ├── layout.css     # app shell / sidebar / page layout
+│   │   │   ├── ui.css         # 共用 UI primitives
+│   │   │   └── pages/         # 各頁專用樣式
 │   │   ├── pages/             # 頁面元件
 │   │   │   ├── Records.jsx    # 頁面列表頁
 │   │   │   └── RecordItem.jsx # 單頁詳情頁
@@ -333,7 +338,18 @@ WORKSPACES_ROOT = Path(os.getenv("WORKSPACES_ROOT", BASE_DIR.parent / "workspace
 frontend/src/
 ├── main.jsx              # 應用程式入口
 ├── App.jsx               # 主元件（路由、workspace 狀態）
-├── App.css               # 全域樣式
+├── styles/               # CSS 分層入口與樣式檔
+│   ├── index.css         # main.jsx 匯入的唯一 CSS 入口
+│   ├── base.css          # reset / root / body
+│   ├── layout.css        # app shell / sidebar / page layout
+│   ├── ui.css            # 共用 UI primitives
+│   └── pages/            # 頁面專用樣式
+│       ├── workspaces.css
+│       ├── records.css
+│       ├── record-pages.css
+│       ├── jobs.css
+│       ├── metadata.css
+│       └── annotator.css
 ├── pages/                # 頁面元件
 │   ├── Records.jsx       # 列表頁
 │   ├── RecordItem.jsx    # 詳情頁
@@ -370,7 +386,11 @@ frontend/src/
 
 #### 2. 修改樣式
 
-**檔案位置**：`frontend/src/App.css`
+**檔案位置**：
+
+- 共用 layout：`frontend/src/styles/layout.css`
+- 共用按鈕、表單、modal 等 UI primitives：`frontend/src/styles/ui.css`
+- 頁面專用樣式：`frontend/src/styles/pages/*.css`
 
 範例：修改卡片樣式
 
@@ -752,7 +772,10 @@ docker compose exec api python manage.py show_urls
    - 在頁面元件中使用
 
 3. **新增樣式**
-   - 在 `frontend/src/App.css` 新增 CSS class
+   - 共用元件樣式：加到 `frontend/src/styles/ui.css`
+   - layout / sidebar / page shell：加到 `frontend/src/styles/layout.css`
+   - 單一頁面樣式：加到 `frontend/src/styles/pages/` 對應頁面的 CSS
+   - 不要重新建立 `frontend/src/App.css`
 
 4. **測試**
    - 後端：`docker compose exec api python manage.py test`

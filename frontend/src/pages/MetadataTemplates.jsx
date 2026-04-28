@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Search, Plus, LayoutTemplate, Copy, Edit, ChevronRight } from 'lucide-react'
 
-export default function MetadataTemplatesPage({ onNavigate, workspaceState }) {
-  const { activeWorkspace } = workspaceState
+export default function MetadataTemplatesPage({ onNavigate }) {
   const [templates, setTemplates] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [loading, setLoading] = useState(true)

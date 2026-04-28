@@ -34,6 +34,12 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Agent / local tooling files
+.agents/
+.codex
+skills-lock.json
+plan.md
+
 # Workspace data (thumbnails, labels, temp files)
 workspace_samples/**           # 忽略所有內容
 !workspace_samples/**/         # 保留資料夾

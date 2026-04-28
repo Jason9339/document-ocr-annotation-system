@@ -7,10 +7,10 @@ function MetadataEntryRow({ entry, onChangeKey, onChangeValue, onRemove, disable
   // For locked (template-defined) fields: show field in single column with label above
   if (entry.locked) {
     return (
-      <div>
+      <div className="metadata-entry-row metadata-entry-row--locked">
         <label
           htmlFor={`metadata-value-${entry.id}`}
-          className="text-sm font-medium mb-2 block"
+          className="metadata-entry-row__label"
         >
           {displayName}
           {entry.required ? ' *' : ''}
@@ -18,7 +18,7 @@ function MetadataEntryRow({ entry, onChangeKey, onChangeValue, onRemove, disable
         <input
           id={`metadata-value-${entry.id}`}
           type="text"
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="metadata-entry-row__input"
           value={entry.value}
           onChange={(event) => onChangeValue(entry.id, event.target.value)}
           placeholder="輸入欄位內容"
@@ -30,36 +30,36 @@ function MetadataEntryRow({ entry, onChangeKey, onChangeValue, onRemove, disable
 
   // For custom (unlocked) fields: show both key and value in 2-column grid
   return (
-    <div className="flex items-start space-x-3">
-      <div className="flex-1 grid grid-cols-2 gap-4">
-        <div>
+    <div className="metadata-entry-row metadata-entry-row--custom">
+      <div className="metadata-entry-row__grid">
+        <div className="metadata-entry-row__field">
           <label
             htmlFor={`metadata-key-${entry.id}`}
-            className="text-sm font-medium mb-2 block"
+            className="metadata-entry-row__label"
           >
             欄位名稱
           </label>
           <input
             id={`metadata-key-${entry.id}`}
             type="text"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="metadata-entry-row__input"
             value={entry.key}
             onChange={(event) => onChangeKey(entry.id, event.target.value)}
             placeholder="輸入欄位名稱"
             disabled={disabled}
           />
         </div>
-        <div>
+        <div className="metadata-entry-row__field">
           <label
             htmlFor={`metadata-value-${entry.id}`}
-            className="text-sm font-medium mb-2 block"
+            className="metadata-entry-row__label"
           >
             欄位值
           </label>
           <input
             id={`metadata-value-${entry.id}`}
             type="text"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="metadata-entry-row__input"
             value={entry.value}
             onChange={(event) => onChangeValue(entry.id, event.target.value)}
             placeholder="輸入欄位內容"
@@ -70,13 +70,13 @@ function MetadataEntryRow({ entry, onChangeKey, onChangeValue, onRemove, disable
       {entry.removable ? (
         <button
           type="button"
-          className="mt-8 p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          className="metadata-entry-row__remove"
           onClick={() => onRemove(entry.id)}
           aria-label="移除欄位"
           disabled={disabled}
           title="移除欄位"
         >
-          <Trash2 size={16} className="text-gray-400" />
+          <Trash2 size={16} aria-hidden="true" />
         </button>
       ) : null}
     </div>

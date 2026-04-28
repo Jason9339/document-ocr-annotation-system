@@ -8,7 +8,6 @@ import WorkspacesPage from './pages/Workspaces.jsx'
 import MetadataTemplatesPage from './pages/MetadataTemplates.jsx'
 import JobsPage from './pages/Jobs.jsx'
 import { api } from './lib/api.js'
-import './App.css'
 
 const routes = [
   { name: 'workspaces', pattern: /^\/workspaces$/, component: WorkspacesPage },

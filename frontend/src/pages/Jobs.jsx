@@ -132,8 +132,8 @@ export default function JobsPage({ workspaceState, onNavigate }) {
   if (workspaceState.loading) {
     return (
       <section className="page jobs-page">
-        <h2>標註工作</h2>
-        <p>正在讀取工作區資訊…</p>
+        <h2 className="page-title">標註工作</h2>
+        <p className="page-copy">正在讀取工作區資訊…</p>
       </section>
     )
   }
