@@ -17,7 +17,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install PaddlePaddle GPU from official source (CUDA 12.9)
-RUN pip install --no-cache-dir paddlepaddle-gpu==3.2.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
+RUN pip install --no-cache-dir paddlepaddle-gpu==3.3.1 --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu129/
 
 # Install backend requirements
 COPY backend/requirements.txt /tmp/requirements.txt
