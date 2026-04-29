@@ -321,7 +321,7 @@ function AnnotationCard({
                     title={direction.title}
                     aria-label={direction.title}
                   >
-                    <DirectionIcon size={14} aria-hidden="true" />
+                    <DirectionIcon size={16} aria-hidden="true" />
                   </button>
                 )
               })}
@@ -518,23 +518,13 @@ export default function RecordItemPage({
       containerSize.width && containerSize.width > 0
         ? containerSize.width
         : pageImage?.width ?? 960
-    const fallbackHeight =
-      containerSize.height && containerSize.height > 0
-        ? containerSize.height
-        : pageImage?.height ??
-          (typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.6) : 640)
 
     if (!pageImage) {
-      return {
-        width: Math.max(baseWidth, 320),
-        height: Math.max(fallbackHeight, 320),
-        scale: 1,
-      }
+      return { width: Math.max(baseWidth, 320), height: 640, scale: 1 }
     }
 
     const availableWidth = Math.max(baseWidth, 320)
-    const availableHeight = Math.max(fallbackHeight, 320)
-    const scale = Math.min(availableWidth / pageImage.width, availableHeight / pageImage.height, 1)
+    const scale = Math.min(availableWidth / pageImage.width, 1)
     const width = pageImage.width * scale
     const height = pageImage.height * scale
 
@@ -547,6 +537,7 @@ export default function RecordItemPage({
   const toolbarLocked = annotationStage !== 'layout'
   const allowGeometryEditing = annotationStage === 'layout'
   const allowGroupingOperations = annotationStage === 'layout'
+  const sidebarWidth = annotationStage === 'text' ? 320 : annotationStage === 'full' ? 360 : 240
   const canvasClassName = `annotator-canvas${showFullView ? ' annotator-canvas--full-view' : ''}`
   const annotatorLayoutClassName = ['annotator-layout']
   if (showTextEditor) {
@@ -1951,16 +1942,22 @@ export default function RecordItemPage({
   }
 
   return (
-    <section className="page annotator-page">
-      <header className="annotator-header">
-        <div>
-          <h2>{filename}</h2>
-          <p className="annotator-subtitle">
-            Record: <code>{recordSlug}</code>
-            {pageInfo.page ? ` • 原始尺寸 ${pageImage?.width ?? '…'}×${pageImage?.height ?? '…'}` : ''}
-          </p>
+    <div className="annotator-shell">
+      <div className="annotator-topnav">
+        <button type="button" className="annotator-topnav__back" onClick={handleBackToRecords}>
+          <ArrowLeft size={16} />
+          <span>返回記錄列表</span>
+        </button>
+        <div className="annotator-topnav__sep" />
+        <div className="annotator-topnav__fileinfo">
+          <div className="annotator-topnav__filename">{filename}</div>
+          <div className="annotator-topnav__meta">
+            <span>Record</span>
+            <span className="annotator-topnav__record-badge">{recordSlug}</span>
+            {pageInfo.page ? <span>· 原始尺寸 {pageImage?.width ?? '…'}×{pageImage?.height ?? '…'}</span> : null}
+          </div>
         </div>
-        <div className="annotator-header__centred">
+        <div className="annotator-topnav__modes">
           <div className="annotator-mode-toggle" role="group" aria-label="標註階段">
             {ANNOTATION_STAGES.map((stage) => (
               <button
@@ -1975,160 +1972,153 @@ export default function RecordItemPage({
             ))}
           </div>
         </div>
-        <div className="annotator-header-actions">
+        <div className="annotator-topnav__spacer" />
+        {annotationStage === 'text' && (
           <button
             type="button"
-            className="ghost-button annotator-info-button"
-            onClick={() => {
-              setGuideStep(0)
-              setShowAnnotatorGuide(true)
-            }}
-            aria-label="查看本頁說明"
-            title="本頁說明"
+            className="annotator-topnav__action-btn"
+            onClick={handleReOCR}
+            disabled={reOCRing}
+            title="重新辨識目前框內的文字（會覆蓋文字內容）"
           >
-            <AlertCircle size={16} />
-            <span>說明</span>
+            <Sparkles size={16} />
+            <span>{reOCRing ? '啟動中…' : '重新辨識'}</span>
           </button>
-          {annotationStage === 'text' && (
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={handleReOCR}
-              disabled={reOCRing}
-              title="重新辨識目前框內的文字（會覆蓋文字內容）"
-            >
-              <Sparkles size={16} />
-              <span>{reOCRing ? '啟動中…' : '重新辨識'}</span>
-            </button>
-          )}
-          <button type="button" className="ghost-button" onClick={handleBackToRecords}>
-            返回記錄列表
-          </button>
-        </div>
-      </header>
-
-      <div className="annotator-tools annotator-tools--global">
+        )}
         <button
           type="button"
-          className={`annotator-tool-button${drawMode ? ' active' : ''}`}
-          data-toolbar
-          onClick={handleAddAnnotation}
-          title={drawMode ? '停用繪製模式' : '啟用繪製模式'}
-          disabled={!allowGeometryEditing || toolbarLocked}
+          className="annotator-topnav__action-btn"
+          onClick={() => { setGuideStep(0); setShowAnnotatorGuide(true) }}
+          title="說明"
         >
-          <Pencil size={16} />
-          <span>{drawMode ? '繪製中' : '繪製'}</span>
+          <AlertCircle size={16} />
+          <span>說明</span>
         </button>
-        <button
-          type="button"
-          className={`annotator-tool-button${!isMultiSelectEnabled ? ' active' : ''}`}
-          data-toolbar
-          onClick={() => {
-            setSelectionMode('single')
-          }}
-          title="單選編輯標註"
-          aria-pressed={!isMultiSelectEnabled}
-          disabled={drawMode || toolbarLocked}
-        >
-          <MousePointer size={16} />
-          <span>單選</span>
-        </button>
-        <button
-          type="button"
-          className={`annotator-tool-button${isMultiSelectEnabled ? ' active' : ''}`}
-          data-toolbar
-          onClick={handleToggleSelectionMode}
-          title={isMultiSelectEnabled ? '切換為單選' : '啟用多選'}
-          aria-pressed={isMultiSelectEnabled}
-          disabled={drawMode || toolbarLocked}
-        >
-          <BoxSelect size={16} />
-          <span>多選</span>
-        </button>
-        <button
-          type="button"
-          className="annotator-tool-button"
-          data-toolbar
-          onClick={handleCreateGroupFromSelection}
-          title="將選取框組成一個新群組"
-          disabled={drawMode || !allowGroupingOperations || selectedIds.length === 0 || toolbarLocked}
-        >
-          <Layers size={16} />
-          <span>群組</span>
-        </button>
-        <button
-          type="button"
-          className={`annotator-tool-button${showBoxFill ? ' active' : ''}`}
-          data-toolbar
-          onClick={() => setShowBoxFill((prev) => !prev)}
-          title={showBoxFill ? '隱藏框填色' : '顯示框填色'}
-          aria-pressed={showBoxFill}
-          disabled={showFullView}
-        >
-          <PaintBucket size={16} />
-          <span>{showBoxFill ? '填色開' : '填色關'}</span>
-        </button>
-        <button
-          type="button"
-          className="annotator-tool-button"
-          data-toolbar
-          onClick={handleDeleteSelected}
-          title="刪除選取標註"
-          disabled={drawMode || !hasSelection || !allowGeometryEditing || toolbarLocked}
-        >
-          <Trash2 size={16} />
-          <span>刪除</span>
-        </button>
-        <button
-          type="button"
-          className="annotator-tool-button"
-          data-toolbar
-          onClick={selectAllAnnotations}
-          title="全選"
-          disabled={
-            drawMode ||
-            annotations.length === 0 ||
-            selectedIds.length === annotations.length ||
-            toolbarLocked
-          }
-        >
-          <CheckSquare size={16} />
-          <span>全選</span>
-        </button>
-        <button
-          type="button"
-          className="annotator-tool-button"
-          data-toolbar
-          onClick={() => {
-            if (drawMode) {
-              return
-            }
-            setViewportScale((value) => Math.min(3, parseFloat((value + 0.15).toFixed(2))))
-          }}
-          title="放大"
-          disabled={drawMode}
-        >
-          <ZoomIn size={16} />
-          <span>放大</span>
-        </button>
-        <button
-          type="button"
-          className="annotator-tool-button"
-          data-toolbar
-          onClick={() => {
-            if (drawMode) {
-              return
-            }
-            setViewportScale((value) => Math.max(0.4, parseFloat((value - 0.15).toFixed(2))))
-          }}
-          title="縮小"
-          disabled={drawMode}
-        >
-          <ZoomOut size={16} />
-          <span>縮小</span>
-        </button>
+        {saveIndicatorMessage ? (
+          <span className="annotator-topnav__save-indicator">{saveIndicatorMessage}</span>
+        ) : null}
       </div>
 
+      <div className="annotator-toolbar">
+        <div className="annotator-toolbar__group">
+          <button
+            type="button"
+            className={`annotator-tool-button${drawMode ? ' active' : ''}`}
+            data-toolbar
+            onClick={handleAddAnnotation}
+            title={drawMode ? '停用繪製模式' : '啟用繪製模式'}
+            disabled={!allowGeometryEditing || toolbarLocked}
+          >
+            <Pencil size={16} />
+            <span>{drawMode ? '繪製中' : '繪製'}</span>
+          </button>
+          <button
+            type="button"
+            className={`annotator-tool-button${!isMultiSelectEnabled ? ' active' : ''}`}
+            data-toolbar
+            onClick={() => setSelectionMode('single')}
+            title="單選編輯標註"
+            aria-pressed={!isMultiSelectEnabled}
+            disabled={drawMode || toolbarLocked}
+          >
+            <MousePointer size={16} />
+            <span>單選</span>
+          </button>
+          <button
+            type="button"
+            className={`annotator-tool-button${isMultiSelectEnabled ? ' active' : ''}`}
+            data-toolbar
+            onClick={handleToggleSelectionMode}
+            title={isMultiSelectEnabled ? '切換為單選' : '啟用多選'}
+            aria-pressed={isMultiSelectEnabled}
+            disabled={drawMode || toolbarLocked}
+          >
+            <BoxSelect size={16} />
+            <span>多選</span>
+          </button>
+          <button
+            type="button"
+            className="annotator-tool-button"
+            data-toolbar
+            onClick={handleCreateGroupFromSelection}
+            title="將選取框組成一個新群組"
+            disabled={drawMode || !allowGroupingOperations || selectedIds.length === 0 || toolbarLocked}
+          >
+            <Layers size={16} />
+            <span>群組</span>
+          </button>
+        </div>
+        <div className="annotator-toolbar__divider" />
+        <div className="annotator-toolbar__group">
+          <button
+            type="button"
+            className={`annotator-tool-button${showBoxFill ? ' active' : ''}`}
+            data-toolbar
+            onClick={() => setShowBoxFill((prev) => !prev)}
+            title={showBoxFill ? '隱藏框填色' : '顯示框填色'}
+            aria-pressed={showBoxFill}
+            disabled={showFullView}
+          >
+            <PaintBucket size={16} />
+            <span>{showBoxFill ? '填色開' : '填色關'}</span>
+          </button>
+          <button
+            type="button"
+            className="annotator-tool-button"
+            data-toolbar
+            onClick={handleDeleteSelected}
+            title="刪除選取標註"
+            disabled={drawMode || !hasSelection || !allowGeometryEditing || toolbarLocked}
+          >
+            <Trash2 size={16} />
+            <span>刪除</span>
+          </button>
+          <button
+            type="button"
+            className="annotator-tool-button"
+            data-toolbar
+            onClick={selectAllAnnotations}
+            title="全選"
+            disabled={drawMode || annotations.length === 0 || selectedIds.length === annotations.length || toolbarLocked}
+          >
+            <CheckSquare size={16} />
+            <span>全選</span>
+          </button>
+        </div>
+        <div className="annotator-toolbar__divider" />
+        <div className="annotator-toolbar__group">
+          <button
+            type="button"
+            className="annotator-tool-button"
+            data-toolbar
+            onClick={() => {
+              if (!drawMode) setViewportScale((v) => Math.min(3, parseFloat((v + 0.15).toFixed(2))))
+            }}
+            title="放大"
+            disabled={drawMode}
+          >
+            <ZoomIn size={16} />
+            <span>放大</span>
+          </button>
+          <button
+            type="button"
+            className="annotator-tool-button"
+            data-toolbar
+            onClick={() => {
+              if (!drawMode) setViewportScale((v) => Math.max(0.4, parseFloat((v - 0.15).toFixed(2))))
+            }}
+            title="縮小"
+            disabled={drawMode}
+          >
+            <ZoomOut size={16} />
+            <span>縮小</span>
+          </button>
+        </div>
+        <div className="annotator-toolbar__spacer" />
+        <div className="annotator-toolbar__zoom">{Math.round(viewportScale * 100)}%</div>
+      </div>
+
+      <div className="annotator-body">
       {pageInfo.loading ? (
         <div className="annotator-notice">頁面載入中…</div>
       ) : null}
@@ -2630,6 +2620,7 @@ export default function RecordItemPage({
           )}
         </aside>
       </div>
+      </div>
 
       {showAnnotatorGuide ? (
         <div className="direction-help-modal" onClick={() => setShowAnnotatorGuide(false)}>
@@ -2736,6 +2727,6 @@ export default function RecordItemPage({
           </div>
         </div>
       ) : null}
-    </section>
+    </div>
   )
 }

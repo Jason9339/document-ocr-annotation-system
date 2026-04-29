@@ -8,7 +8,13 @@
       "Read(//home/vipl/Paddle/build/python/**)",
       "Bash(apt-cache search *)",
       "Bash(dpkg -l)",
-      "Bash(docker build *)"
+      "Bash(docker build *)",
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(cp \"/home/vipl/.claude/projects/-home-vipl-zihcilin-document-ocr-annotation-system/858e5641-1106-41e5-9393-352ac52a2d51/tool-results/webfetch-1777477627010-uh7gvk.bin\" /tmp/design.gz)",
+      "Bash(gunzip -f /tmp/design.gz)",
+      "Bash(mkdir -p /tmp/design_extracted)",
+      "Bash(tar -xf /tmp/design -C /tmp/design_extracted)",
+      "Read(//home/vipl/zihcilin/document-ocr-announcement-system/frontend/src/styles/**)"
     ]
   }
 }

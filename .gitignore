@@ -37,6 +37,7 @@ Thumbs.db
 # Agent / local tooling files
 .agents/
 .codex
+.claude
 skills-lock.json
 plan.md
 

@@ -175,6 +175,7 @@ function App() {
   const [workspaceBusy, setWorkspaceBusy] = useState(false)
   const showNav = route?.name !== 'record-item'
   const showSidebar = route?.name !== 'record-item'
+  const showAppHeader = route?.name !== 'record-item'
 
   const activeSidebarKey =
     sidebarLinks.find((link) => link.matches?.includes(route?.name))?.key ?? null
@@ -287,6 +288,11 @@ function App() {
     [showSidebar],
   )
 
+  const appClass = useMemo(
+    () => `app${showAppHeader ? '' : ' app--annotator'}`,
+    [showAppHeader],
+  )
+
   const workspaceContext = useMemo(
     () => ({
       ...workspaceState,
@@ -350,15 +356,17 @@ function App() {
           </div>
         </aside>
       ) : null}
-      <div className="app">
-        <div className="app-header">
-          <div className="app-header__breadcrumb">
-            {/* Breadcrumb will be rendered by pages */}
+      <div className={appClass}>
+        {showAppHeader ? (
+          <div className="app-header">
+            <div className="app-header__breadcrumb">
+              {/* Breadcrumb will be rendered by pages */}
+            </div>
+            <div className="app-header__status">
+              <HealthIndicator />
+            </div>
           </div>
-          <div className="app-header__status">
-            <HealthIndicator />
-          </div>
-        </div>
+        ) : null}
         {showNav ? (
           <nav className="nav">
             {navLinks.map((link) => (
