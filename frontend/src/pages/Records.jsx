@@ -54,13 +54,20 @@ export default function RecordsPage({
   const [workspaceDetails, setWorkspaceDetails] = useState(activeWorkspace || null)
   const [workspaceSettingsOpen, setWorkspaceSettingsOpen] = useState(false)
   const [workspaceSettingsSaving, setWorkspaceSettingsSaving] = useState(false)
+  const [workspaceSettingsDeleting, setWorkspaceSettingsDeleting] = useState(false)
 
-  const fileInputRef = useRef(null)
+  const zipInputRef = useRef(null)
+  const folderInputRef = useRef(null)
+  const [uploadMode, setUploadMode] = useState('zip')
   const [uploadFile, setUploadFile] = useState(null)
+  const [uploadFiles, setUploadFiles] = useState([])
+  const [uploadRootName, setUploadRootName] = useState('')
   const [uploadSlug, setUploadSlug] = useState('')
   const [uploadTitle, setUploadTitle] = useState('')
   const [uploadError, setUploadError] = useState(null)
   const [uploadBusy, setUploadBusy] = useState(false)
+  const [uploadPreview, setUploadPreview] = useState(null)
+  const [uploadResult, setUploadResult] = useState(null)
 
   useEffect(() => {
     if (!activeWorkspaceSlug) {
@@ -184,7 +191,7 @@ export default function RecordsPage({
   }
 
   const handleCloseWorkspaceSettings = () => {
-    if (workspaceSettingsSaving) {
+    if (workspaceSettingsSaving || workspaceSettingsDeleting) {
       return
     }
     setWorkspaceSettingsOpen(false)
@@ -215,6 +222,36 @@ export default function RecordsPage({
       alert('更新工作區失敗：' + (err.message || '請稍後再試'))
     } finally {
       setWorkspaceSettingsSaving(false)
+    }
+  }
+
+  const handleDeleteWorkspace = async (workspace) => {
+    if (!workspace?.slug) {
+      return
+    }
+    const displayName = workspace.title || workspace.slug
+    const confirmed = window.confirm(
+      `確定要刪除工作區「${displayName}」嗎？\n\n這會刪除 records、labels 和 workspace 設定，且無法復原。`,
+    )
+    if (!confirmed) {
+      return
+    }
+
+    setWorkspaceSettingsDeleting(true)
+    try {
+      await api.deleteWorkspace(workspace.slug)
+      setWorkspaceSettingsOpen(false)
+      setRecords([])
+      setWorkspaceDetails(null)
+      if (typeof onRefreshWorkspaces === 'function') {
+        await Promise.resolve(onRefreshWorkspaces())
+      }
+      onNavigate('/workspaces')
+    } catch (err) {
+      console.error('Failed to delete workspace:', err)
+      alert('刪除工作區失敗：' + (err.message || '請稍後再試'))
+    } finally {
+      setWorkspaceSettingsDeleting(false)
     }
   }
 
@@ -325,27 +362,112 @@ export default function RecordsPage({
   const handleFileChange = (event) => {
     const file = event.target.files?.[0]
     setUploadFile(file ?? null)
+    setUploadFiles([])
+    setUploadRootName('')
+  }
+
+  const handleFolderChange = (event) => {
+    const files = Array.from(event.target.files ?? [])
+    setUploadFile(null)
+    setUploadFiles(files)
+    const firstPath = files[0]?.webkitRelativePath || files[0]?.name || ''
+    const rootName = firstPath.split(/[\\/]/).filter(Boolean)[0] || ''
+    setUploadRootName(rootName)
+    if (rootName && !uploadTitle.trim()) {
+      setUploadTitle(rootName)
+    }
+  }
+
+  const handleUploadModeChange = (mode) => {
+    setUploadMode(mode)
+    setUploadFile(null)
+    setUploadFiles([])
+    setUploadRootName('')
+    setUploadError(null)
+    setUploadPreview(null)
+    setUploadResult(null)
+    if (zipInputRef.current) {
+      zipInputRef.current.value = ''
+    }
+    if (folderInputRef.current) {
+      folderInputRef.current.value = ''
+    }
   }
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-    if (!uploadFile) {
+    if (uploadMode === 'zip' && !uploadFile) {
       setUploadError('請選擇包含頁面影像的 ZIP 檔案。')
+      return
+    }
+    if (uploadMode === 'folder' && uploadFiles.length === 0) {
+      setUploadError('請選擇包含頁面影像的資料夾。')
+      return
+    }
+    setUploadBusy(true)
+    setUploadError(null)
+    setUploadPreview(null)
+    setUploadResult(null)
+    try {
+      const folderRoot = uploadRootName || 'upload'
+      const relativePaths =
+        uploadMode === 'folder'
+          ? uploadFiles.map((file) => {
+              const rawPath = file.webkitRelativePath || file.name
+              const parts = rawPath.split(/[\\/]/).filter(Boolean)
+              return parts.length > 1 ? parts.slice(1).join('/') : parts.join('/')
+            })
+          : undefined
+      const preview = await api.previewRecordUpload({
+        file: uploadMode === 'zip' ? uploadFile : undefined,
+        files: uploadMode === 'folder' ? uploadFiles : undefined,
+        relativePaths,
+        rootName: uploadMode === 'folder' ? folderRoot : undefined,
+        slug: uploadSlug.trim() || undefined,
+        title: uploadTitle.trim() || undefined,
+      })
+      setUploadPreview(preview)
+    } catch (err) {
+      setUploadError(err.message ?? '上傳失敗，請稍後再試。')
+    } finally {
+      setUploadBusy(false)
+    }
+  }
+
+  const handleCancelPreview = async () => {
+    const uploadId = uploadPreview?.upload_id
+    setUploadPreview(null)
+    setUploadResult(null)
+    if (!uploadId) {
+      return
+    }
+    try {
+      await api.cancelRecordUpload(uploadId)
+    } catch (err) {
+      console.warn('Failed to cancel upload preview:', err)
+    }
+  }
+
+  const handleCommitUpload = async () => {
+    if (!uploadPreview?.upload_id) {
       return
     }
     setUploadBusy(true)
     setUploadError(null)
     try {
-      await api.createRecord({
-        file: uploadFile,
-        slug: uploadSlug.trim() || undefined,
-        title: uploadTitle.trim() || undefined,
-      })
+      const result = await api.commitRecordUpload(uploadPreview.upload_id)
+      setUploadResult(result.summary ?? null)
+      setUploadPreview(null)
       setUploadFile(null)
+      setUploadFiles([])
+      setUploadRootName('')
       setUploadSlug('')
       setUploadTitle('')
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
+      if (zipInputRef.current) {
+        zipInputRef.current.value = ''
+      }
+      if (folderInputRef.current) {
+        folderInputRef.current.value = ''
       }
       setRefreshIndex((value) => value + 1)
       onRefreshWorkspaces()
@@ -450,26 +572,112 @@ export default function RecordsPage({
               placeholder="demo-record"
             />
           </label>
-          <label className="input">
-            <span>Record 壓縮檔（ZIP）</span>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".zip"
-              onChange={handleFileChange}
-            />
-          </label>
+          <div className="record-create__source">
+            <div className="record-create__mode" role="tablist" aria-label="上傳來源">
+              <button
+                type="button"
+                className={uploadMode === 'zip' ? 'active' : ''}
+                onClick={() => handleUploadModeChange('zip')}
+              >
+                ZIP
+              </button>
+              <button
+                type="button"
+                className={uploadMode === 'folder' ? 'active' : ''}
+                onClick={() => handleUploadModeChange('folder')}
+              >
+                資料夾
+              </button>
+            </div>
+            {uploadMode === 'zip' ? (
+              <label className="input">
+                <span>Record 壓縮檔（ZIP）</span>
+                <input
+                  ref={zipInputRef}
+                  type="file"
+                  accept=".zip"
+                  onChange={handleFileChange}
+                />
+              </label>
+            ) : (
+              <label className="input">
+                <span>Record 資料夾</span>
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  webkitdirectory="true"
+                  directory=""
+                  multiple
+                  onChange={handleFolderChange}
+                />
+              </label>
+            )}
+            {uploadMode === 'folder' && uploadRootName ? (
+              <span className="record-create__hint">
+                已選擇：{uploadRootName}（{uploadFiles.length} 個檔案）
+              </span>
+            ) : null}
+          </div>
           {uploadError ? (
             <p className="record-create__error">上傳失敗：{uploadError}</p>
+          ) : null}
+          {uploadPreview?.plan ? (
+            <div className="record-create__preview">
+              <div className="record-create__preview-summary">
+                <strong>{uploadPreview.plan.title}</strong>
+                <span>{uploadPreview.plan.new_page_count} 新頁</span>
+                <span>{uploadPreview.plan.skipped_count} 略過</span>
+              </div>
+              <div className="record-create__preview-list">
+                {uploadPreview.plan.records?.map((record) => (
+                  <div key={record.title} className="record-create__preview-row">
+                    <span>{record.title}</span>
+                    <span>{record.new_page_count} 新頁</span>
+                    <span>{record.skipped_count} 略過</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {uploadResult ? (
+            <p className="record-create__success">
+              匯入完成：{uploadResult.imported ?? 0} 新增，{uploadResult.skipped ?? 0} 略過，
+              {uploadResult.failed ?? 0} 失敗
+            </p>
           ) : null}
           <div className="record-create__actions">
             <button
               type="submit"
               className="primary-button"
-              disabled={uploadBusy || !uploadFile}
+              disabled={
+                uploadBusy ||
+                Boolean(uploadPreview) ||
+                (uploadMode === 'zip' && !uploadFile) ||
+                (uploadMode === 'folder' && uploadFiles.length === 0)
+              }
             >
-              {uploadBusy ? '上傳中…' : '確認上傳'}
+              {uploadBusy ? '分析中…' : '預覽上傳'}
             </button>
+            {uploadPreview ? (
+              <>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={handleCommitUpload}
+                  disabled={uploadBusy}
+                >
+                  {uploadBusy ? '上傳中…' : '確認上傳'}
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={handleCancelPreview}
+                  disabled={uploadBusy}
+                >
+                  取消
+                </button>
+              </>
+            ) : null}
           </div>
         </form>
       </section>
@@ -545,6 +753,23 @@ export default function RecordsPage({
                 {filteredRecords.map((record) => {
                   const actionMenuOpen = openActionMenu === record.slug
                   const actionMenuId = `record-actions-${record.slug}`
+                  const pageCount = record.page_count ?? 0
+                  const completedCount = record.completed_count ?? 0
+                  const completionPercent = Math.max(
+                    0,
+                    Math.min(100, Math.round(Number(record.completion_percent ?? 0))),
+                  )
+                  const isCompleted = pageCount > 0 && completedCount >= pageCount
+                  const statusLabel = isCompleted
+                    ? '已完成'
+                    : record.has_annotations || completedCount > 0
+                      ? '進行中'
+                      : '未開始'
+                  const statusClass = isCompleted
+                    ? 'status-badge--completed'
+                    : record.has_annotations || completedCount > 0
+                      ? 'status-badge--in-progress'
+                      : 'status-badge--pending'
                   return (
                     <tr key={record.slug} className={actionMenuOpen ? 'menu-open' : ''}>
                     <td>
@@ -557,7 +782,7 @@ export default function RecordsPage({
                             {record.title || record.slug}
                           </div>
                           <div className="records-table__meta">
-                            {record.page_count ?? 0} 頁
+                            {pageCount} 頁
                           </div>
                         </div>
                       </div>
@@ -565,21 +790,19 @@ export default function RecordsPage({
                     <td>
                       <code className="records-table__code">{record.slug}</code>
                     </td>
-                    <td className="records-table__number">{record.page_count ?? 0}</td>
+                    <td className="records-table__number">{pageCount}</td>
                     <td>
                       <div className="progress-bar">
                         <div className="progress-bar__track">
-                          <div className="progress-bar__fill" style={{ width: '0%' }}></div>
+                          <div className="progress-bar__fill" style={{ width: `${completionPercent}%` }}></div>
                         </div>
-                        <span className="progress-bar__label">0%</span>
+                        <span className="progress-bar__label">
+                          {completionPercent}%
+                        </span>
                       </div>
                     </td>
                     <td>
-                      {record.has_annotations ? (
-                        <span className="status-badge status-badge--in-progress">進行中</span>
-                      ) : (
-                        <span className="status-badge status-badge--pending">未開始</span>
-                      )}
+                      <span className={`status-badge ${statusClass}`}>{statusLabel}</span>
                     </td>
                     <td className="records-table__date">{formatDate(record.created_at)}</td>
                     <td>
@@ -671,7 +894,9 @@ export default function RecordsPage({
         workspace={workspaceDetails}
         onClose={handleCloseWorkspaceSettings}
         onSave={handleSaveWorkspaceSettings}
+        onDelete={handleDeleteWorkspace}
         saving={workspaceSettingsSaving}
+        deleting={workspaceSettingsDeleting}
       />
 
       <RecordMetadataModal

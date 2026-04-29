@@ -24,11 +24,14 @@ async function fetchJSON(path, options = {}) {
   const contentType = response.headers.get('Content-Type') ?? ''
   const isJSON = contentType.includes('application/json')
   const payload = isJSON ? await response.json() : null
+  const textPayload = isJSON ? '' : await response.text()
 
   if (!response.ok) {
     const detail =
       payload && typeof payload.error === 'string'
         ? payload.error
+        : textPayload.trim()
+          ? textPayload.trim()
         : response.statusText || 'Request failed'
     const error = new Error(detail)
     error.status = response.status
@@ -60,6 +63,26 @@ export async function createWorkspace({ slug, title }) {
   })
 }
 
+export async function importWorkspace({ file, name }) {
+  if (!file) {
+    throw new Error('Workspace file is required')
+  }
+  if (!name) {
+    throw new Error('workspace name is required')
+  }
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('name', name)
+  return fetchJSON('/api/v1/workspaces/import', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
+export function getWorkspaceExportUrl(slug) {
+  return `/api/v1/workspaces/${encodeURIComponent(slug)}/export`
+}
+
 export async function openWorkspace(slug) {
   return fetchJSON('/api/v1/workspace/open', {
     method: 'POST',
@@ -83,6 +106,15 @@ export async function updateWorkspace(slug, payload = {}) {
   })
 }
 
+export async function deleteWorkspace(slug) {
+  if (!slug) {
+    throw new Error('workspace slug is required')
+  }
+  return fetchJSON(`/api/v1/workspaces/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+  })
+}
+
 export async function getRecords() {
   return fetchJSON('/api/v1/records')
 }
@@ -100,12 +132,21 @@ export async function clearRecordAnnotations(slug) {
   })
 }
 
-export async function createRecord({ file, slug, title }) {
-  if (!file) {
+export async function createRecord({ file, files, relativePaths, rootName, slug, title }) {
+  if (!file && (!files || files.length === 0)) {
     throw new Error('Record file is required.')
   }
   const formData = new FormData()
-  formData.append('file', file)
+  if (file) {
+    formData.append('file', file)
+  }
+  if (files?.length) {
+    files.forEach((item) => formData.append('files', item))
+    relativePaths?.forEach((item) => formData.append('relative_paths', item))
+  }
+  if (rootName) {
+    formData.append('root_name', rootName)
+  }
   if (slug) {
     formData.append('slug', slug)
   }
@@ -115,6 +156,63 @@ export async function createRecord({ file, slug, title }) {
   return fetchJSON('/api/v1/records', {
     method: 'POST',
     body: formData,
+  })
+}
+
+function appendRecordUploadFormData({ file, files, relativePaths, rootName, slug, title }) {
+  if (!file && (!files || files.length === 0)) {
+    throw new Error('Record file is required.')
+  }
+  const formData = new FormData()
+  if (file) {
+    formData.append('file', file)
+  }
+  if (files?.length) {
+    files.forEach((item) => formData.append('files', item))
+    relativePaths?.forEach((item) => formData.append('relative_paths', item))
+  }
+  if (rootName) {
+    formData.append('root_name', rootName)
+  }
+  if (slug) {
+    formData.append('slug', slug)
+  }
+  if (title) {
+    formData.append('title', title)
+  }
+  return formData
+}
+
+export async function previewRecordUpload(payload) {
+  return fetchJSON('/api/v1/records/upload/preview', {
+    method: 'POST',
+    body: appendRecordUploadFormData(payload),
+  })
+}
+
+export async function commitRecordUpload(uploadId) {
+  if (!uploadId) {
+    throw new Error('upload id is required')
+  }
+  return fetchJSON('/api/v1/records/upload/commit', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ upload_id: uploadId }),
+  })
+}
+
+export async function cancelRecordUpload(uploadId) {
+  if (!uploadId) {
+    return { ok: true }
+  }
+  return fetchJSON('/api/v1/records/upload/cancel', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ upload_id: uploadId }),
   })
 }
 
@@ -267,11 +365,17 @@ export const api = {
   getWorkspaces,
   getCurrentWorkspace,
   createWorkspace,
+  importWorkspace,
+  getWorkspaceExportUrl,
   openWorkspace,
   updateWorkspace,
+  deleteWorkspace,
   getItems,
   getRecords,
   createRecord,
+  previewRecordUpload,
+  commitRecordUpload,
+  cancelRecordUpload,
   getRecord,
   clearRecordAnnotations,
   getItemAnnotations,

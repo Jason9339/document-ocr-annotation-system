@@ -73,26 +73,132 @@
 }
 
 .record-create__form {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(280px, 1.25fr) auto;
   gap: 0.75rem;
   align-items: flex-end;
 }
 
 .record-create__form .input {
-  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.record-create__source {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.record-create__mode {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #f9fafb;
+}
+
+.record-create__mode button {
+  border: 0;
+  border-right: 1px solid #d1d5db;
+  background: transparent;
+  color: #4b5563;
+  padding: 0.45rem 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.record-create__mode button:last-child {
+  border-right: 0;
+}
+
+.record-create__mode button.active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.record-create__hint {
+  color: #4b5563;
+  font-size: 0.85rem;
 }
 
 .record-create__error {
-  width: 100%;
+  grid-column: 1 / -1;
   margin: 0;
   color: #b91c1c;
   font-weight: 600;
 }
 
+.record-create__success {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #047857;
+  font-weight: 700;
+}
+
+.record-create__preview {
+  grid-column: 1 / -1;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #f9fafb;
+}
+
+.record-create__preview-summary,
+.record-create__preview-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.65rem 0.85rem;
+}
+
+.record-create__preview-summary {
+  background: #eef2ff;
+  color: #1f2937;
+}
+
+.record-create__preview-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.record-create__preview-row {
+  border-top: 1px solid #e5e7eb;
+  color: #374151;
+}
+
 .record-create__actions {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-self: start;
+  min-width: max-content;
+}
+
+@media (max-width: 1100px) {
+  .record-create__form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .record-create__source,
+  .record-create__actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .record-create__form {
+    grid-template-columns: 1fr;
+  }
+
+  .record-create__preview-summary,
+  .record-create__preview-row {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
 }
 
 .records-table-card {
@@ -412,8 +518,8 @@
 }
 
 .status-badge--completed {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: #dcfce7;
+  color: #15803d;
 }
 
 @media (max-width: 780px) {

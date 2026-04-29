@@ -49,6 +49,68 @@
   cursor: not-allowed;
 }
 
+.workspace-import {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 1rem;
+  padding: 1.25rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+}
+
+.workspace-import__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  color: #2563eb;
+}
+
+.workspace-import__header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 1.1rem;
+}
+
+.workspace-import__header p {
+  margin: 0.25rem 0 0;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.workspace-import__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.workspace-import__form .input {
+  flex: 1 1 240px;
+}
+
+.workspace-import__error,
+.workspace-import__success,
+.workspace-import__hint {
+  margin: 0;
+  font-weight: 700;
+}
+
+.workspace-import__error {
+  color: #b91c1c;
+}
+
+.workspace-import__success {
+  color: #047857;
+}
+
+.workspace-import__hint {
+  color: #b91c1c;
+  font-size: 0.9rem;
+}
+
 .workspace-search {
   position: relative;
   flex: 1 1 360px;

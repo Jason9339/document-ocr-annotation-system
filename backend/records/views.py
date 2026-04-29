@@ -13,9 +13,14 @@ from .services import (
     RecordError,
     WorkspaceError,
     batch_update_items_metadata,
-    create_record_from_upload,
+    commit_staged_record_upload,
+    create_records_from_file_batch,
+    create_records_from_upload,
     create_workspace,
+    delete_workspace,
     delete_record,
+    discard_staged_record_upload,
+    export_workspace_to_zip,
     filter_items,
     get_active_workspace,
     get_item,
@@ -24,12 +29,15 @@ from .services import (
     get_record,
     get_record_metadata_payload,
     iter_items,
+    import_workspace_from_upload,
     list_metadata_templates,
     list_records,
     list_workspaces,
     load_annotations,
     load_workspace_info,
     paginate_items,
+    preview_records_from_file_batch,
+    preview_records_from_upload,
     update_item_metadata,
     update_record_metadata,
     update_workspace_info,
@@ -132,12 +140,69 @@ def create_workspace_view(request):
 
 
 @csrf_exempt
-@require_http_methods(["PATCH", "PUT"])
+@require_POST
+def import_workspace_view(request):
+    upload_file = request.FILES.get("file")
+    if upload_file is None:
+        return JsonResponse({"ok": False, "error": "Missing 'file' upload."}, status=400)
+
+    workspace_name = request.POST.get("name") or request.POST.get("title") or request.POST.get("slug")
+    try:
+        result = import_workspace_from_upload(
+            upload_file=upload_file,
+            workspace_name=workspace_name,
+        )
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "workspace": _workspace_payload(result.workspace),
+            "summary": {
+                "imported": result.imported,
+                "skipped": result.skipped,
+                "failed": result.failed,
+                "failures": list(result.failures),
+            },
+        },
+        status=201,
+    )
+
+
+@require_GET
+def export_workspace_view(request, slug: str):
+    try:
+        workspace = get_workspace(slug)
+        archive_path = export_workspace_to_zip(workspace)
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+
+    archive = archive_path.open("rb")
+    response = FileResponse(
+        archive,
+        content_type="application/zip",
+        as_attachment=True,
+        filename=f"{workspace.slug}.zip",
+    )
+    response._resource_closers.append(lambda: archive_path.unlink(missing_ok=True))
+    return response
+
+
+@csrf_exempt
+@require_http_methods(["PATCH", "PUT", "DELETE"])
 def update_workspace(request, slug: str):
     try:
         workspace = get_workspace(slug)
     except WorkspaceError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+
+    if request.method == "DELETE":
+        try:
+            delete_workspace(workspace.slug)
+        except WorkspaceError as exc:
+            return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+        return JsonResponse({"ok": True, "deleted": workspace.slug})
 
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
@@ -169,24 +234,161 @@ def records_root(request):
         records = [_record_payload(record) for record in list_records(workspace)]
         return JsonResponse({"ok": True, "records": records})
 
-    upload_file = request.FILES.get("file")
-    if upload_file is None:
-        return HttpResponseBadRequest("Missing 'file' upload.")
-
     slug = request.POST.get("slug") or request.POST.get("name")
     title = request.POST.get("title")
+    upload_file = request.FILES.get("file")
+    upload_files = request.FILES.getlist("files")
 
     try:
-        record = create_record_from_upload(
-            workspace,
-            upload_file=upload_file,
-            slug=slug,
-            title=title,
-        )
+        if upload_file is not None:
+            upload_result = create_records_from_upload(
+                workspace,
+                upload_file=upload_file,
+                slug=slug,
+                title=title,
+            )
+        elif upload_files:
+            upload_result = create_records_from_file_batch(
+                workspace,
+                upload_files=upload_files,
+                relative_paths=request.POST.getlist("relative_paths"),
+                root_name=request.POST.get("root_name"),
+                slug=slug,
+                title=title,
+            )
+        else:
+            return JsonResponse({"ok": False, "error": "Missing 'file' upload."}, status=400)
     except RecordError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
-    return JsonResponse({"ok": True, "record": _record_payload(record)}, status=201)
+    primary_record = upload_result.records[0] if upload_result.records else None
+    return JsonResponse(
+        {
+            "ok": True,
+            "record": _record_payload(primary_record) if primary_record else None,
+            "records": [_record_payload(record) for record in upload_result.records],
+            "summary": {
+                "imported": upload_result.imported,
+                "skipped": upload_result.skipped,
+                "failed": upload_result.failed,
+                "failures": list(upload_result.failures),
+            },
+        },
+        status=201,
+    )
+
+
+@csrf_exempt
+@require_POST
+def record_upload_preview_view(request):
+    try:
+        workspace = _active_workspace_or_400()
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    slug = request.POST.get("slug") or request.POST.get("name")
+    title = request.POST.get("title")
+    upload_file = request.FILES.get("file")
+    upload_files = request.FILES.getlist("files")
+
+    try:
+        if upload_file is not None:
+            preview = preview_records_from_upload(
+                workspace,
+                upload_file=upload_file,
+                slug=slug,
+                title=title,
+            )
+        elif upload_files:
+            preview = preview_records_from_file_batch(
+                workspace,
+                upload_files=upload_files,
+                relative_paths=request.POST.getlist("relative_paths"),
+                root_name=request.POST.get("root_name"),
+                slug=slug,
+                title=title,
+            )
+        else:
+            return JsonResponse({"ok": False, "error": "Missing 'file' upload."}, status=400)
+    except RecordError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "upload_id": preview.upload_id,
+            "plan": _record_upload_plan_payload(preview.plan),
+        }
+    )
+
+
+@csrf_exempt
+@require_POST
+def record_upload_commit_view(request):
+    try:
+        workspace = _active_workspace_or_400()
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON payload.")
+
+    upload_id = payload.get("upload_id")
+    try:
+        upload_result = commit_staged_record_upload(workspace, upload_id=upload_id)
+    except RecordError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    primary_record = upload_result.records[0] if upload_result.records else None
+    return JsonResponse(
+        {
+            "ok": True,
+            "record": _record_payload(primary_record) if primary_record else None,
+            "records": [_record_payload(record) for record in upload_result.records],
+            "summary": {
+                "imported": upload_result.imported,
+                "skipped": upload_result.skipped,
+                "failed": upload_result.failed,
+                "failures": list(upload_result.failures),
+            },
+        },
+        status=201,
+    )
+
+
+@csrf_exempt
+@require_POST
+def record_upload_cancel_view(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON payload.")
+
+    upload_id = payload.get("upload_id")
+    try:
+        discard_staged_record_upload(upload_id=upload_id)
+    except RecordError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    return JsonResponse({"ok": True})
+
+
+def _record_upload_plan_payload(plan):
+    return {
+        "title": plan.title,
+        "new_page_count": plan.new_page_count,
+        "skipped_count": plan.skipped_count,
+        "records": [
+            {
+                "title": record.title,
+                "new_page_count": record.new_page_count,
+                "skipped_count": record.skipped_count,
+            }
+            for record in plan.records
+        ],
+    }
 
 
 def _item_payload(workspace, item):

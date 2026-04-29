@@ -4,10 +4,11 @@ import json
 import math
 import shutil
 import tempfile
+import uuid
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone as dt_timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from django.conf import settings
@@ -15,10 +16,24 @@ from django.core.files.uploadedfile import UploadedFile
 from django.utils import timezone
 from django.utils.text import slugify
 
+from .importing import (
+    LayoutDetectionError,
+    RecordUploadCandidate,
+    RecordUploadLayout,
+    RecordUploadPlan,
+    commit_record_upload_plan,
+    detect_record_upload_folder_layout,
+    is_zip_entry_inside_staging,
+    plan_record_upload,
+    record_upload_plan_from_dict,
+    record_upload_plan_to_dict,
+)
+
 
 WORKSPACE_STATE_FILE: Path = settings.WORKSPACE_STATE_FILE
 WORKSPACE_ROOT: Path = settings.WORKSPACES_ROOT
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+RECORD_UPLOAD_STAGING_ROOT: Path = settings.BASE_DIR / ".runtime" / "record_uploads"
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 RECORD_METADATA_FILENAME = "metadata.json"
 LABELS_DIRNAME = "labels"
 ANNOTATIONS_SCHEMA_VERSION = 1
@@ -56,6 +71,10 @@ DEFAULT_METADATA_TEMPLATE = {
 }
 
 
+def _slugify_identifier(value: str) -> str:
+    return slugify(value, allow_unicode=True)
+
+
 @dataclass(frozen=True)
 class Workspace:
     slug: str
@@ -78,6 +97,8 @@ class Record:
     page_count: int
     source: Optional[Dict[str, str]]
     has_annotations: bool = False
+    completed_count: int = 0
+    completion_percent: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
@@ -86,6 +107,8 @@ class Record:
             "created_at": self.created_at.isoformat(),
             "page_count": self.page_count,
             "has_annotations": self.has_annotations,
+            "completed_count": self.completed_count,
+            "completion_percent": self.completion_percent,
         }
         if self.source:
             payload["source"] = self.source
@@ -98,6 +121,31 @@ class WorkspaceError(Exception):
 
 class RecordError(Exception):
     """Raised when record operations fail."""
+
+
+@dataclass(frozen=True)
+class RecordUploadResult:
+    records: Tuple[Record, ...]
+    plan: RecordUploadPlan
+    imported: int
+    skipped: int
+    failed: int
+    failures: Tuple[Dict[str, str], ...]
+
+
+@dataclass(frozen=True)
+class RecordUploadPreviewResult:
+    upload_id: str
+    plan: RecordUploadPlan
+
+
+@dataclass(frozen=True)
+class WorkspaceImportResult:
+    workspace: Workspace
+    imported: int
+    skipped: int
+    failed: int
+    failures: Tuple[Dict[str, str], ...]
 
 
 def list_workspaces() -> List[Workspace]:
@@ -150,6 +198,15 @@ def update_workspace_info(slug: str, *, title: Optional[str] = None) -> Dict[str
     return info
 
 
+def delete_workspace(slug: str) -> None:
+    workspace = get_workspace(slug)
+    try:
+        shutil.rmtree(workspace.path)
+    except OSError as exc:
+        raise WorkspaceError(f"Failed to delete workspace: {exc}") from exc
+    _clear_active_workspace_if_matches(workspace.slug)
+
+
 def _state_payload_path() -> Path:
     WORKSPACE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     return WORKSPACE_STATE_FILE
@@ -161,6 +218,16 @@ def set_active_workspace(slug: str) -> Workspace:
     with _state_payload_path().open("w", encoding="utf-8") as fh:
         json.dump(payload, fh)
     return workspace
+
+
+def _clear_active_workspace_if_matches(slug: str) -> None:
+    try:
+        with WORKSPACE_STATE_FILE.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return
+    if payload.get("slug") == slug:
+        WORKSPACE_STATE_FILE.unlink(missing_ok=True)
 
 
 def get_workspace(slug: str) -> Workspace:
@@ -177,8 +244,8 @@ def create_workspace(slug: str, *, title: Optional[str] = None) -> Workspace:
     if not slug or not slug.strip():
         raise WorkspaceError("Workspace slug cannot be empty.")
 
-    # Validate slug format (alphanumeric, hyphens, underscores only)
-    cleaned_slug = slugify(slug.strip())
+    # Normalize the slug while preserving non-ASCII names used by local collections.
+    cleaned_slug = _slugify_identifier(slug.strip())
     if not cleaned_slug:
         raise WorkspaceError("Workspace slug contains invalid characters.")
 
@@ -208,6 +275,91 @@ def create_workspace(slug: str, *, title: Optional[str] = None) -> Workspace:
         if workspace_path.exists():
             shutil.rmtree(workspace_path, ignore_errors=True)
         raise WorkspaceError(f"Failed to create workspace: {exc}") from exc
+
+
+def import_workspace_from_upload(
+    *,
+    upload_file: UploadedFile,
+    workspace_name: str,
+) -> WorkspaceImportResult:
+    if upload_file.size == 0:
+        raise WorkspaceError("Uploaded檔案為空，無法匯入 Workspace。")
+    if not workspace_name or not workspace_name.strip():
+        raise WorkspaceError("Workspace name cannot be empty.")
+
+    workspace_slug = _slugify_identifier(workspace_name.strip())
+    if not workspace_slug:
+        raise WorkspaceError("Workspace name contains invalid characters.")
+
+    target_path = WORKSPACE_ROOT / workspace_slug
+    if target_path.exists():
+        raise WorkspaceError(f"Workspace '{workspace_slug}' already exists.")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        archive_path = tmp_path / "workspace.zip"
+        staging_root = tmp_path / "staging"
+        staging_root.mkdir()
+
+        with archive_path.open("wb") as buffer:
+            for chunk in upload_file.chunks():
+                buffer.write(chunk)
+
+        try:
+            _extract_workspace_zip(archive_path, staging_root)
+        except zipfile.BadZipFile as exc:
+            raise WorkspaceError("上傳的檔案不是合法的 ZIP 壓縮檔。") from exc
+        except LayoutDetectionError as exc:
+            raise WorkspaceError(str(exc)) from exc
+
+        workspace_root = _detect_workspace_import_root(staging_root)
+        _validate_workspace_import_root(workspace_root)
+
+        WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+        target_path.mkdir(parents=True, exist_ok=False)
+        try:
+            _copy_workspace_import_tree(workspace_root, target_path)
+            _write_imported_workspace_info(
+                target_path=target_path,
+                fallback_title=workspace_name.strip(),
+            )
+        except Exception:
+            shutil.rmtree(target_path, ignore_errors=True)
+            raise
+
+    workspace = Workspace(slug=workspace_slug, path=target_path)
+    page_count = _count_workspace_pages(workspace)
+    return WorkspaceImportResult(
+        workspace=workspace,
+        imported=page_count,
+        skipped=0,
+        failed=0,
+        failures=(),
+    )
+
+
+def export_workspace_to_zip(workspace: Workspace) -> Path:
+    if not workspace.path.exists() or not workspace.path.is_dir():
+        raise WorkspaceError(f"Workspace '{workspace.slug}' does not exist.")
+
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    archive_path = Path(handle.name)
+    handle.close()
+
+    try:
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(workspace.path.rglob("*")):
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(workspace.path)
+                if ".thumbnails" in relative.parts:
+                    continue
+                archive.write(path, Path(workspace.slug) / relative)
+    except Exception:
+        archive_path.unlink(missing_ok=True)
+        raise
+
+    return archive_path
 
 
 def get_active_workspace() -> Optional[Workspace]:
@@ -403,6 +555,29 @@ def _has_annotations(workspace: Workspace, record_slug: str) -> bool:
             if isinstance(raw_annotations, list) and len(raw_annotations) > 0:
                 return True
     return False
+
+
+def _record_completion_count(workspace: Workspace, record_slug: str, record_path: Path) -> int:
+    labels_root = _labels_root(workspace, record_slug)
+    pages_dir = record_path / "pages"
+    if not labels_root.exists() or not pages_dir.exists():
+        return 0
+
+    completed = 0
+    for image_path in pages_dir.rglob("*"):
+        if not image_path.is_file() or image_path.suffix.lower() not in ALLOWED_EXTENSIONS:
+            continue
+        sidecar_path = labels_root / image_path.with_suffix(".json").name
+        if not sidecar_path.is_file():
+            continue
+        try:
+            with sidecar_path.open("r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict) and payload.get("completed") is True:
+            completed += 1
+    return completed
 
 
 def _parse_created_at(metadata: Dict[str, Any], record_path: Path) -> datetime:
@@ -691,6 +866,8 @@ def list_records(workspace: Workspace) -> List[Record]:
         created_at = _parse_created_at(metadata, record_dir)
         source = metadata.get("source") if isinstance(metadata.get("source"), dict) else None
         has_annotations = _has_annotations(workspace, slug)
+        completed_count = _record_completion_count(workspace, slug, record_dir)
+        completion_percent = round((completed_count / page_count) * 100) if page_count else 0
         records.append(
             Record(
                 slug=slug,
@@ -699,6 +876,8 @@ def list_records(workspace: Workspace) -> List[Record]:
                 page_count=page_count,
                 source=source,
                 has_annotations=has_annotations,
+                completed_count=completed_count,
+                completion_percent=completion_percent,
             )
         )
     return records
@@ -714,6 +893,8 @@ def get_record(workspace: Workspace, slug: str) -> Record:
     created_at = _parse_created_at(metadata, record_path)
     source = metadata.get("source") if isinstance(metadata.get("source"), dict) else None
     has_annotations = _has_annotations(workspace, slug)
+    completed_count = _record_completion_count(workspace, slug, record_path)
+    completion_percent = round((completed_count / page_count) * 100) if page_count else 0
     return Record(
         slug=slug,
         title=title,
@@ -721,6 +902,8 @@ def get_record(workspace: Workspace, slug: str) -> Record:
         page_count=page_count,
         source=source,
         has_annotations=has_annotations,
+        completed_count=completed_count,
+        completion_percent=completion_percent,
     )
 
 
@@ -871,6 +1054,184 @@ def delete_record(workspace: Workspace, slug: str) -> None:
         shutil.rmtree(labels_path, ignore_errors=True)
 
 
+def create_records_from_upload(
+    workspace: Workspace,
+    *,
+    upload_file: UploadedFile,
+    slug: Optional[str] = None,
+    title: Optional[str] = None,
+) -> RecordUploadResult:
+    preview = preview_records_from_upload(
+        workspace,
+        upload_file=upload_file,
+        slug=slug,
+        title=title,
+    )
+    return commit_staged_record_upload(workspace, upload_id=preview.upload_id)
+
+
+def preview_records_from_upload(
+    workspace: Workspace,
+    *,
+    upload_file: UploadedFile,
+    slug: Optional[str] = None,
+    title: Optional[str] = None,
+) -> RecordUploadPreviewResult:
+    if upload_file.size == 0:
+        raise RecordError("Uploaded檔案為空，無法建立 Record。")
+
+    session_root, staging_root = _create_record_upload_session()
+    try:
+        archive_path = session_root / "upload.zip"
+        with archive_path.open("wb") as buffer:
+            for chunk in upload_file.chunks():
+                buffer.write(chunk)
+
+        try:
+            tree = _extract_upload_zip_to_tree(archive_path, staging_root)
+        except zipfile.BadZipFile as exc:
+            raise RecordError("上傳的檔案不是合法的 ZIP 壓縮檔。") from exc
+        except LayoutDetectionError as exc:
+            raise RecordError(str(exc)) from exc
+
+        root_record_name = _slugify_identifier(slug or title or Path(upload_file.name).stem)
+        if not root_record_name:
+            raise RecordError("Record 名稱無效。")
+
+        plan = _build_record_upload_plan(
+            workspace,
+            tree=tree,
+            root_record_name=root_record_name,
+            title=title or Path(upload_file.name).stem,
+        )
+        _write_record_upload_session(session_root, plan, upload_file.name)
+        return RecordUploadPreviewResult(upload_id=session_root.name, plan=plan)
+    except Exception:
+        shutil.rmtree(session_root, ignore_errors=True)
+        raise
+
+
+
+def create_records_from_file_batch(
+    workspace: Workspace,
+    *,
+    upload_files: Sequence[UploadedFile],
+    relative_paths: Sequence[str],
+    root_name: Optional[str] = None,
+    slug: Optional[str] = None,
+    title: Optional[str] = None,
+) -> RecordUploadResult:
+    preview = preview_records_from_file_batch(
+        workspace,
+        upload_files=upload_files,
+        relative_paths=relative_paths,
+        root_name=root_name,
+        slug=slug,
+        title=title,
+    )
+    return commit_staged_record_upload(workspace, upload_id=preview.upload_id)
+
+
+def preview_records_from_file_batch(
+    workspace: Workspace,
+    *,
+    upload_files: Sequence[UploadedFile],
+    relative_paths: Sequence[str],
+    root_name: Optional[str] = None,
+    slug: Optional[str] = None,
+    title: Optional[str] = None,
+) -> RecordUploadPreviewResult:
+    if not upload_files:
+        raise RecordError("請選擇要上傳的資料夾或影像檔案。")
+    if len(upload_files) != len(relative_paths):
+        raise RecordError("上傳檔案與相對路徑數量不一致。")
+
+    session_root, staging_root = _create_record_upload_session()
+    try:
+        tree: Dict[str, Any] = {}
+        for upload_file, relative_path in zip(upload_files, relative_paths):
+            if not relative_path:
+                raise RecordError("上傳檔案缺少相對路徑。")
+            if not is_zip_entry_inside_staging(relative_path, staging_root):
+                raise RecordError("上傳資料夾內含有不安全的路徑，已拒絕上傳。")
+
+            destination = staging_root / Path(*PurePosixPath(relative_path).parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("wb") as buffer:
+                for chunk in upload_file.chunks():
+                    buffer.write(chunk)
+            _add_file_to_upload_tree(tree, relative_path)
+
+        root_record_name = _slugify_identifier(slug or title or root_name or "upload")
+        if not root_record_name:
+            raise RecordError("Record 名稱無效。")
+
+        plan = _build_record_upload_plan(
+            workspace,
+            tree=tree,
+            root_record_name=root_record_name,
+            title=title or root_name or "Folder upload",
+        )
+        _write_record_upload_session(session_root, plan, root_name or "folder upload")
+        return RecordUploadPreviewResult(upload_id=session_root.name, plan=plan)
+    except Exception:
+        shutil.rmtree(session_root, ignore_errors=True)
+        raise
+
+
+def commit_staged_record_upload(workspace: Workspace, *, upload_id: str) -> RecordUploadResult:
+    session_root = _record_upload_session_path(upload_id)
+    staging_root = session_root / "staging"
+    metadata_path = session_root / "plan.json"
+    if not metadata_path.is_file() or not staging_root.is_dir():
+        raise RecordError("Upload preview 已失效，請重新選擇檔案。")
+
+    try:
+        with metadata_path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        plan = record_upload_plan_from_dict(payload.get("plan", {}))
+        source_name = payload.get("source_name") or "upload"
+        commit_result = commit_record_upload_plan(
+            plan,
+            staging_root=staging_root,
+            records_root=_records_root(workspace),
+            labels_root=workspace.path / LABELS_DIRNAME,
+        )
+        _refresh_uploaded_record_metadata(workspace, plan, source_name)
+    finally:
+        shutil.rmtree(session_root, ignore_errors=True)
+
+    records: List[Record] = []
+    for planned_record in plan.records:
+        try:
+            records.append(get_record(workspace, planned_record.title))
+        except RecordError:
+            continue
+
+    failures = tuple(
+        {
+            "record": failure.record_title,
+            "filename": failure.filename,
+            "reason": failure.reason,
+        }
+        for failure in commit_result.failures
+    )
+
+    return RecordUploadResult(
+        records=tuple(records),
+        plan=plan,
+        imported=commit_result.imported,
+        skipped=commit_result.skipped,
+        failed=commit_result.failed,
+        failures=failures,
+    )
+
+
+def discard_staged_record_upload(*, upload_id: str) -> None:
+    session_root = _record_upload_session_path(upload_id)
+    shutil.rmtree(session_root, ignore_errors=True)
+
+
 def create_record_from_upload(
     workspace: Workspace,
     *,
@@ -878,85 +1239,224 @@ def create_record_from_upload(
     slug: Optional[str] = None,
     title: Optional[str] = None,
 ) -> Record:
-    if upload_file.size == 0:
-        raise RecordError("Uploaded檔案為空，無法建立 Record。")
-
-    derived_slug = slugify(slug or Path(upload_file.name).stem)
-    if not derived_slug:
-        raise RecordError("Record 名稱無效。")
-
-    records_path = _records_root(workspace)
-    record_path = records_path / derived_slug
-    if record_path.exists():
-        raise RecordError(f"Record '{derived_slug}' 已存在，請選擇其他名稱。")
-
-    pages_dir = record_path / "pages"
-    copied_files: List[Path] = []
-    record_created = False
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        archive_path = Path(tmp_dir) / "upload.zip"
-        with archive_path.open("wb") as buffer:
-            for chunk in upload_file.chunks():
-                buffer.write(chunk)
-
-        try:
-            with zipfile.ZipFile(archive_path) as archive:
-                members = [
-                    name
-                    for name in archive.namelist()
-                    if not name.endswith("/") and not name.startswith("__MACOSX/")
-                ]
-                image_members = [
-                    name for name in members if Path(name).suffix.lower() in ALLOWED_EXTENSIONS
-                ]
-                if not image_members:
-                    raise RecordError("壓縮檔內沒有支援的影像格式。")
-
-                record_path.mkdir(parents=True, exist_ok=False)
-                record_created = True
-                pages_dir.mkdir(parents=True, exist_ok=False)
-
-                for member in sorted(image_members):
-                    filename = Path(member).name
-                    destination = pages_dir / filename
-                    if destination.exists():
-                        raise RecordError(f"檔名 {filename} 重複，請整理後再上傳。")
-                    with archive.open(member) as src, destination.open("wb") as dst:
-                        shutil.copyfileobj(src, dst)
-                    copied_files.append(destination)
-        except zipfile.BadZipFile as exc:
-            raise RecordError("上傳的檔案不是合法的 ZIP 壓縮檔。") from exc
-        except Exception:
-            if record_created:
-                shutil.rmtree(record_path, ignore_errors=True)
-            raise
-
-    labels_root = _labels_root(workspace, derived_slug)
-    labels_root.mkdir(parents=True, exist_ok=True)
-    for page_file in copied_files:
-        sidecar = labels_root / Path(page_file.name).with_suffix(".json")
-        if not sidecar.exists():
-            with sidecar.open("w", encoding="utf-8") as fh:
-                json.dump({"annotations": []}, fh, ensure_ascii=False, indent=2)
-
-    created_at = timezone.now()
-    metadata_payload = {
-        "slug": derived_slug,
-        "title": title or _derive_record_title(derived_slug),
-        "created_at": created_at.isoformat(),
-        "page_count": len(copied_files),
-        "source": {"type": "upload", "name": upload_file.name},
-    }
-    _write_record_metadata(record_path, metadata_payload)
-
-    return Record(
-        slug=derived_slug,
-        title=metadata_payload["title"],
-        created_at=created_at,
-        page_count=len(copied_files),
-        source=metadata_payload["source"],
+    result = create_records_from_upload(
+        workspace,
+        upload_file=upload_file,
+        slug=slug,
+        title=title,
     )
+    if not result.records:
+        raise RecordError("上傳完成，但沒有建立或更新任何 Record。")
+    return result.records[0]
+
+
+def _extract_upload_zip_to_tree(archive_path: Path, staging_root: Path) -> Dict[str, Any]:
+    tree: Dict[str, Any] = {}
+    with zipfile.ZipFile(archive_path) as archive:
+        for member in archive.infolist():
+            member_name = member.filename
+            if not member_name or member.is_dir():
+                continue
+            if not is_zip_entry_inside_staging(member_name, staging_root):
+                raise LayoutDetectionError(
+                    "unsafe_zip_entry",
+                    "ZIP 檔內含有不安全的路徑，已拒絕上傳。",
+                )
+
+            member_path = Path(*PurePosixPath(member_name).parts)
+            destination = staging_root / member_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as src, destination.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+            _add_file_to_upload_tree(tree, member_name)
+    return tree
+
+
+def _create_record_upload_session() -> Tuple[Path, Path]:
+    RECORD_UPLOAD_STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    session_root = RECORD_UPLOAD_STAGING_ROOT / uuid.uuid4().hex
+    staging_root = session_root / "staging"
+    staging_root.mkdir(parents=True, exist_ok=False)
+    return session_root, staging_root
+
+
+def _record_upload_session_path(upload_id: str) -> Path:
+    if not upload_id or any(char in upload_id for char in "/\\.") or len(upload_id) > 64:
+        raise RecordError("Upload preview id 無效。")
+    session_root = (RECORD_UPLOAD_STAGING_ROOT / upload_id).resolve()
+    staging_root = RECORD_UPLOAD_STAGING_ROOT.resolve()
+    if staging_root != session_root and staging_root not in session_root.parents:
+        raise RecordError("Upload preview id 無效。")
+    return session_root
+
+
+def _write_record_upload_session(session_root: Path, plan: RecordUploadPlan, source_name: str) -> None:
+    payload = {
+        "source_name": source_name,
+        "plan": record_upload_plan_to_dict(plan),
+    }
+    with (session_root / "plan.json").open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+
+def _build_record_upload_plan(
+    workspace: Workspace,
+    *,
+    tree: Dict[str, Any],
+    root_record_name: str,
+    title: str,
+) -> RecordUploadPlan:
+    try:
+        layout = detect_record_upload_folder_layout(tree, root_name=root_record_name)
+        layout = _normalize_record_upload_layout(layout)
+        existing_pages = _existing_pages_by_record(workspace)
+        return plan_record_upload(
+            layout,
+            existing_pages_by_record=existing_pages,
+            title=title,
+        )
+    except LayoutDetectionError as exc:
+        raise RecordError(str(exc)) from exc
+
+
+def _add_file_to_upload_tree(tree: Dict[str, Any], member_name: str) -> None:
+    parts = PurePosixPath(member_name).parts
+    cursor = tree
+    for part in parts[:-1]:
+        child = cursor.setdefault(part, {})
+        if not isinstance(child, dict):
+            return
+        cursor = child
+    if parts:
+        cursor[parts[-1]] = None
+
+
+def _extract_workspace_zip(archive_path: Path, staging_root: Path) -> None:
+    with zipfile.ZipFile(archive_path) as archive:
+        for member in archive.infolist():
+            member_name = member.filename
+            if not member_name or member.is_dir():
+                continue
+            if not is_zip_entry_inside_staging(member_name, staging_root):
+                raise LayoutDetectionError(
+                    "unsafe_zip_entry",
+                    "ZIP 檔內含有不安全的路徑，已拒絕匯入。",
+                )
+            if _is_thumbnail_zip_entry(member_name):
+                continue
+
+            member_path = Path(*PurePosixPath(member_name).parts)
+            destination = staging_root / member_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as src, destination.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+
+
+def _is_thumbnail_zip_entry(member_name: str) -> bool:
+    return ".thumbnails" in PurePosixPath(member_name).parts
+
+
+def _detect_workspace_import_root(staging_root: Path) -> Path:
+    if (staging_root / "records").is_dir() and (staging_root / LABELS_DIRNAME).is_dir():
+        return staging_root
+
+    candidates = [
+        child
+        for child in staging_root.iterdir()
+        if child.is_dir()
+        and (child / "records").is_dir()
+        and (child / LABELS_DIRNAME).is_dir()
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        raise WorkspaceError("ZIP 檔內包含多個 workspace 結構，請一次匯入一個 Workspace。")
+    raise WorkspaceError("匯入檔案缺少 records/ 或 labels/。")
+
+
+def _validate_workspace_import_root(workspace_root: Path) -> None:
+    if not (workspace_root / "records").is_dir():
+        raise WorkspaceError("匯入檔案缺少 records/。")
+    if not (workspace_root / LABELS_DIRNAME).is_dir():
+        raise WorkspaceError("匯入檔案缺少 labels/。")
+
+
+def _copy_workspace_import_tree(source_root: Path, target_path: Path) -> None:
+    shutil.copytree(source_root / "records", target_path / "records")
+    shutil.copytree(source_root / LABELS_DIRNAME, target_path / LABELS_DIRNAME)
+    workspace_info = source_root / WORKSPACE_INFO_FILENAME
+    if workspace_info.is_file():
+        shutil.copy2(workspace_info, target_path / WORKSPACE_INFO_FILENAME)
+
+
+def _write_imported_workspace_info(
+    *,
+    target_path: Path,
+    fallback_title: str,
+) -> None:
+    title = fallback_title
+
+    info_path = target_path / WORKSPACE_INFO_FILENAME
+    with info_path.open("w", encoding="utf-8") as fh:
+        json.dump({"title": title}, fh, ensure_ascii=False, indent=2)
+
+
+def _count_workspace_pages(workspace: Workspace) -> int:
+    return sum(record.page_count for record in list_records(workspace))
+
+
+def _normalize_record_upload_layout(layout: RecordUploadLayout) -> RecordUploadLayout:
+    records = []
+    for candidate in layout.records:
+        record_slug = _slugify_identifier(candidate.title)
+        if not record_slug:
+            raise LayoutDetectionError("invalid_record_name", "Record 名稱無效。")
+        records.append(
+            RecordUploadCandidate(
+                title=record_slug,
+                files=candidate.files,
+            )
+        )
+    return RecordUploadLayout(kind=layout.kind, records=tuple(records))
+
+
+def _existing_pages_by_record(workspace: Workspace) -> Dict[str, set[str]]:
+    records_dir = _records_root(workspace)
+    if not records_dir.exists():
+        return {}
+
+    existing: Dict[str, set[str]] = {}
+    for record_dir in records_dir.iterdir():
+        pages_dir = record_dir / "pages"
+        if not record_dir.is_dir() or not pages_dir.exists():
+            continue
+        existing[record_dir.name] = {
+            path.name
+            for path in pages_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in ALLOWED_EXTENSIONS
+        }
+    return existing
+
+
+def _refresh_uploaded_record_metadata(
+    workspace: Workspace,
+    plan: RecordUploadPlan,
+    upload_name: str,
+) -> None:
+    created_at = timezone.now()
+    for planned_record in plan.records:
+        if not any(file.action == "import" for file in planned_record.files):
+            continue
+        record_path = _records_root(workspace) / planned_record.title
+        if not record_path.exists():
+            continue
+        metadata = _load_record_metadata(record_path)
+        metadata.setdefault("slug", planned_record.title)
+        metadata.setdefault("title", _derive_record_title(planned_record.title))
+        metadata.setdefault("created_at", created_at.isoformat())
+        metadata["page_count"] = _count_pages(record_path)
+        metadata.setdefault("source", {"type": "upload", "name": upload_name})
+        _write_record_metadata(record_path, metadata)
 
 
 def iter_items(workspace: Workspace, record_slug: Optional[str] = None) -> Iterable[Item]:

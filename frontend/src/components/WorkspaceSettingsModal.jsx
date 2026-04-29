@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Loader2 } from 'lucide-react'
+import { X, Loader2, Trash2 } from 'lucide-react'
 
 export default function WorkspaceSettingsModal({
   isOpen,
   workspace,
   onClose,
   onSave,
+  onDelete,
   saving = false,
+  deleting = false,
 }) {
   const [title, setTitle] = useState('')
   const [error, setError] = useState(null)
@@ -38,7 +40,7 @@ export default function WorkspaceSettingsModal({
   }
 
   const handleOverlayClick = (event) => {
-    if (event.target === event.currentTarget && !saving) {
+    if (event.target === event.currentTarget && !saving && !deleting) {
       onClose()
     }
   }
@@ -52,6 +54,13 @@ export default function WorkspaceSettingsModal({
     }
     setError(null)
     onSave({ title: nextTitle })
+  }
+
+  const handleDelete = () => {
+    if (!workspace?.slug || deleting || saving) {
+      return
+    }
+    onDelete?.(workspace)
   }
 
   const modal = (
@@ -76,7 +85,7 @@ export default function WorkspaceSettingsModal({
             type="button"
             className="modal-close"
             onClick={onClose}
-            disabled={saving}
+            disabled={saving || deleting}
             aria-label="關閉"
           >
             <X size={18} />
@@ -91,21 +100,39 @@ export default function WorkspaceSettingsModal({
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="輸入顯示名稱"
-              disabled={saving}
+              disabled={saving || deleting}
             />
           </label>
           {error ? <p className="form-error">{error}</p> : null}
+
+          <section className="danger-zone">
+            <div>
+              <h3>刪除工作區</h3>
+              <p>
+                刪除後會移除這個 workspace 的 records、labels 和設定檔，且無法復原。
+              </p>
+            </div>
+            <button
+              type="button"
+              className="text-button text-button--danger"
+              onClick={handleDelete}
+              disabled={saving || deleting}
+            >
+              {deleting ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+              <span>{deleting ? '刪除中…' : '刪除工作區'}</span>
+            </button>
+          </section>
 
           <div className="modal-footer">
             <button
               type="button"
               className="ghost-button"
               onClick={onClose}
-              disabled={saving}
+              disabled={saving || deleting}
             >
               取消
             </button>
-            <button type="submit" className="primary-button" disabled={saving}>
+            <button type="submit" className="primary-button" disabled={saving || deleting}>
               {saving ? (
                 <>
                   <Loader2 size={16} className="spin" />
@@ -127,4 +154,3 @@ export default function WorkspaceSettingsModal({
   }
   return modal
 }
-

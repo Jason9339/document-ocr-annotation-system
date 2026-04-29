@@ -1,6 +1,17 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Search, Plus, Folder, ArrowRight, RefreshCw, X, Loader2 } from 'lucide-react'
+import {
+  Search,
+  Plus,
+  Folder,
+  ArrowRight,
+  RefreshCw,
+  X,
+  Loader2,
+  Upload,
+  Download,
+} from 'lucide-react'
+import { api } from '../lib/api.js'
 
 export default function WorkspacesPage({
   workspaceState,
@@ -17,6 +28,11 @@ export default function WorkspacesPage({
   const [creating, setCreating] = useState(false)
   const [newWorkspace, setNewWorkspace] = useState({ slug: '', title: '' })
   const [createError, setCreateError] = useState(null)
+  const [importName, setImportName] = useState('')
+  const [importFile, setImportFile] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState(null)
+  const [importSummary, setImportSummary] = useState(null)
 
   const filteredOptions = useMemo(() => {
     if (!searchTerm.trim()) {
@@ -45,6 +61,8 @@ export default function WorkspacesPage({
     return `共 ${options.length} 個工作區，內含 ${totalRecords} 筆書籍記錄`
   }, [isLoading, options])
 
+  const importNameRequired = Boolean(importFile && !importName.trim())
+
   const handleOpenWorkspace = async (slug) => {
     if (!slug) {
       return
@@ -53,6 +71,13 @@ export default function WorkspacesPage({
     if (ok) {
       onNavigate('/records')
     }
+  }
+
+  const handleExportWorkspace = (slug) => {
+    if (!slug) {
+      return
+    }
+    window.location.href = api.getWorkspaceExportUrl(slug)
   }
 
   const handleEnterActiveWorkspace = () => {
@@ -101,6 +126,34 @@ export default function WorkspacesPage({
       setCreateError(error.message || '建立工作區失敗')
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handleImportSubmit = async (event) => {
+    event.preventDefault()
+    const name = importName.trim()
+    if (!name) {
+      setImportError('Workspace 名稱不可為空白')
+      return
+    }
+    if (!importFile) {
+      setImportError('請選擇 Workspace 匯出 ZIP')
+      return
+    }
+
+    setImporting(true)
+    setImportError(null)
+    setImportSummary(null)
+    try {
+      const result = await api.importWorkspace({ file: importFile, name })
+      setImportSummary(result.summary ?? null)
+      setImportName('')
+      setImportFile(null)
+      await Promise.resolve(onRefreshWorkspaces?.())
+    } catch (error) {
+      setImportError(error.message || '匯入 Workspace 失敗')
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -172,6 +225,64 @@ export default function WorkspacesPage({
 
       {error ? <p className="error-banner">無法載入 Workspace：{error}</p> : null}
 
+      <section className="workspace-import">
+        <div className="workspace-import__header">
+          <div>
+            <h2>匯入 Workspace</h2>
+            <p>從完整 workspace ZIP 建立新工作區；匯入時會忽略縮圖快取。</p>
+          </div>
+          <Upload size={22} aria-hidden="true" />
+        </div>
+        <form className="workspace-import__form" onSubmit={handleImportSubmit}>
+          <label className={`input ${importNameRequired ? 'input--invalid' : ''}`}>
+            <span className="input__label-row">
+              Workspace 名稱
+              <strong>必填</strong>
+            </span>
+            <input
+              type="text"
+              value={importName}
+              onChange={(event) => setImportName(event.target.value)}
+              placeholder="例如：羅家倫資料"
+              disabled={importing}
+              required
+              aria-invalid={importNameRequired}
+              aria-describedby="workspace-import-name-help"
+            />
+            <small id="workspace-import-name-help">
+              匯入後會以這個名稱顯示，不會沿用 ZIP 內原本的 workspace title。
+            </small>
+          </label>
+          <label className="input">
+            <span>Workspace 匯出 ZIP</span>
+            <input
+              type="file"
+              accept=".zip"
+              onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+              disabled={importing}
+            />
+          </label>
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={importing || !importName.trim() || !importFile}
+            title={importNameRequired ? '請先填寫 Workspace 名稱' : undefined}
+          >
+            {importing ? <Loader2 size={16} className="spin" /> : <Upload size={16} />}
+            {importNameRequired ? '先填名稱' : '匯入'}
+          </button>
+        </form>
+        {importNameRequired ? (
+          <p className="workspace-import__hint">已選擇 ZIP，請先填左側 Workspace 名稱。</p>
+        ) : null}
+        {importError ? <p className="workspace-import__error">{importError}</p> : null}
+        {importSummary ? (
+          <p className="workspace-import__success">
+            匯入完成：{importSummary.imported ?? 0} 頁，{importSummary.failed ?? 0} 失敗
+          </p>
+        ) : null}
+      </section>
+
       {isLoading && !options.length ? (
         <div className="workspaces-empty">載入中，請稍候…</div>
       ) : null}
@@ -224,6 +335,15 @@ export default function WorkspacesPage({
                     ? '已選定，可直接管理書籍'
                     : '切換後即可管理此工作區內的資料'}
                 </div>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => handleExportWorkspace(workspace.slug)}
+                  disabled={isLoading}
+                >
+                  <Download size={16} />
+                  匯出
+                </button>
                 <button
                   type="button"
                   className="primary-button"
