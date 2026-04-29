@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//tmp/**)",
+      "Bash(tar xf *)",
+      "Bash(npm run *)"
+    ]
+  }
+}

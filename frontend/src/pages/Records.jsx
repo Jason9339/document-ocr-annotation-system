@@ -5,6 +5,8 @@ import {
   RefreshCw,
   BookOpen,
   ChevronRight,
+  ChevronDown,
+  Plus,
   Edit,
   Sparkles,
   Loader2,
@@ -68,6 +70,7 @@ export default function RecordsPage({
   const [uploadBusy, setUploadBusy] = useState(false)
   const [uploadPreview, setUploadPreview] = useState(null)
   const [uploadResult, setUploadResult] = useState(null)
+  const [newOpen, setNewOpen] = useState(false)
 
   useEffect(() => {
     if (!activeWorkspaceSlug) {
@@ -531,156 +534,173 @@ export default function RecordsPage({
         </div>
       </div>
 
-      <div className="records-summary-panel">
-        <div>
-          <span className="records-summary-panel__label">當前工作區</span>
-          <h2>{workspaceDisplayName}</h2>
-          {workspaceSlug ? (
-            <span className="records-summary-panel__slug">{workspaceSlug}</span>
-          ) : null}
-        </div>
-        <div className="records-summary-panel__stats">
-          <div>
-            <span className="records-summary-panel__metric">{records.length}</span>
-            <span className="records-summary-panel__metric-label">書籍</span>
-          </div>
-          <div>
-            <span className="records-summary-panel__metric">{totalPages}</span>
-            <span className="records-summary-panel__metric-label">頁面</span>
-          </div>
-        </div>
-      </div>
-
-      <section className="record-create">
-        <h3>新增書籍</h3>
-        <form onSubmit={handleSubmit} className="record-create__form">
-          <label className="input">
-            <span>顯示名稱（選填）</span>
-            <input
-              type="text"
-              value={uploadTitle}
-              onChange={(event) => setUploadTitle(event.target.value)}
-              placeholder="例如：Demo Record"
-            />
-          </label>
-          <label className="input">
-            <span>Slug（選填，未填將自動產生）</span>
-            <input
-              type="text"
-              value={uploadSlug}
-              onChange={(event) => setUploadSlug(event.target.value)}
-              placeholder="demo-record"
-            />
-          </label>
-          <div className="record-create__source">
-            <div className="record-create__mode" role="tablist" aria-label="上傳來源">
-              <button
-                type="button"
-                className={uploadMode === 'zip' ? 'active' : ''}
-                onClick={() => handleUploadModeChange('zip')}
-              >
-                ZIP
-              </button>
-              <button
-                type="button"
-                className={uploadMode === 'folder' ? 'active' : ''}
-                onClick={() => handleUploadModeChange('folder')}
-              >
-                資料夾
-              </button>
-            </div>
-            {uploadMode === 'zip' ? (
-              <label className="input">
-                <span>Record 壓縮檔（ZIP）</span>
-                <input
-                  ref={zipInputRef}
-                  type="file"
-                  accept=".zip"
-                  onChange={handleFileChange}
-                />
-              </label>
-            ) : (
-              <label className="input">
-                <span>Record 資料夾</span>
-                <input
-                  ref={folderInputRef}
-                  type="file"
-                  webkitdirectory="true"
-                  directory=""
-                  multiple
-                  onChange={handleFolderChange}
-                />
-              </label>
-            )}
-            {uploadMode === 'folder' && uploadRootName ? (
-              <span className="record-create__hint">
-                已選擇：{uploadRootName}（{uploadFiles.length} 個檔案）
-              </span>
+      {/* Workspace banner with collapsible add-book form */}
+      <div className="records-banner">
+        <div className="records-banner__header">
+          <div className="records-banner__workspace">
+            <span className="records-banner__label">當前工作區</span>
+            <h2 className="records-banner__title">{workspaceDisplayName}</h2>
+            {workspaceSlug ? (
+              <span className="records-summary-panel__slug">{workspaceSlug}</span>
             ) : null}
           </div>
-          {uploadError ? (
-            <p className="record-create__error">上傳失敗：{uploadError}</p>
-          ) : null}
-          {uploadPreview?.plan ? (
-            <div className="record-create__preview">
-              <div className="record-create__preview-summary">
-                <strong>{uploadPreview.plan.title}</strong>
-                <span>{uploadPreview.plan.new_page_count} 新頁</span>
-                <span>{uploadPreview.plan.skipped_count} 略過</span>
+          <div className="records-banner__right">
+            <div className="records-summary-panel__stats">
+              <div>
+                <span className="records-summary-panel__metric">{records.length}</span>
+                <span className="records-summary-panel__metric-label">書籍</span>
               </div>
-              <div className="record-create__preview-list">
-                {uploadPreview.plan.records?.map((record) => (
-                  <div key={record.title} className="record-create__preview-row">
-                    <span>{record.title}</span>
-                    <span>{record.new_page_count} 新頁</span>
-                    <span>{record.skipped_count} 略過</span>
-                  </div>
-                ))}
+              <div>
+                <span className="records-summary-panel__metric">{totalPages}</span>
+                <span className="records-summary-panel__metric-label">頁面</span>
               </div>
             </div>
-          ) : null}
-          {uploadResult ? (
-            <p className="record-create__success">
-              匯入完成：{uploadResult.imported ?? 0} 新增，{uploadResult.skipped ?? 0} 略過，
-              {uploadResult.failed ?? 0} 失敗
-            </p>
-          ) : null}
-          <div className="record-create__actions">
             <button
-              type="submit"
-              className="primary-button"
-              disabled={
-                uploadBusy ||
-                Boolean(uploadPreview) ||
-                (uploadMode === 'zip' && !uploadFile) ||
-                (uploadMode === 'folder' && uploadFiles.length === 0)
-              }
+              type="button"
+              className={`records-banner__toggle${newOpen ? ' records-banner__toggle--open' : ''}`}
+              onClick={() => setNewOpen((o) => !o)}
+              title={newOpen ? '收起新增區塊' : '展開新增書籍'}
             >
-              {uploadBusy ? '分析中…' : '預覽上傳'}
+              <Plus size={14} />
+              新增書籍
+              <ChevronDown size={14} className="records-banner__toggle-chevron" />
             </button>
-            {uploadPreview ? (
-              <>
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={handleCommitUpload}
-                  disabled={uploadBusy}
-                >
-                  {uploadBusy ? '上傳中…' : '確認上傳'}
-                </button>
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={handleCancelPreview}
-                  disabled={uploadBusy}
-                >
-                  取消
-                </button>
-              </>
-            ) : null}
           </div>
-        </form>
-      </section>
+        </div>
+
+        {newOpen && (
+          <div className="records-banner__add-section">
+            <p className="records-banner__add-title">新增書籍</p>
+            <form onSubmit={handleSubmit} className="record-create__form">
+              <label className="input">
+                <span>顯示名稱（選填）</span>
+                <input
+                  type="text"
+                  value={uploadTitle}
+                  onChange={(event) => setUploadTitle(event.target.value)}
+                  placeholder="例如：Demo Record"
+                />
+              </label>
+              <label className="input">
+                <span>Slug（選填，未填將自動產生）</span>
+                <input
+                  type="text"
+                  value={uploadSlug}
+                  onChange={(event) => setUploadSlug(event.target.value)}
+                  placeholder="demo-record"
+                />
+              </label>
+              <div className="record-create__source">
+                <div className="record-create__mode" role="tablist" aria-label="上傳來源">
+                  <button
+                    type="button"
+                    className={uploadMode === 'zip' ? 'active' : ''}
+                    onClick={() => handleUploadModeChange('zip')}
+                  >
+                    ZIP
+                  </button>
+                  <button
+                    type="button"
+                    className={uploadMode === 'folder' ? 'active' : ''}
+                    onClick={() => handleUploadModeChange('folder')}
+                  >
+                    資料夾
+                  </button>
+                </div>
+                {uploadMode === 'zip' ? (
+                  <label className="input">
+                    <span>Record 壓縮檔（ZIP）</span>
+                    <input
+                      ref={zipInputRef}
+                      type="file"
+                      accept=".zip"
+                      onChange={handleFileChange}
+                    />
+                  </label>
+                ) : (
+                  <label className="input">
+                    <span>Record 資料夾</span>
+                    <input
+                      ref={folderInputRef}
+                      type="file"
+                      webkitdirectory="true"
+                      directory=""
+                      multiple
+                      onChange={handleFolderChange}
+                    />
+                  </label>
+                )}
+                {uploadMode === 'folder' && uploadRootName ? (
+                  <span className="record-create__hint">
+                    已選擇：{uploadRootName}（{uploadFiles.length} 個檔案）
+                  </span>
+                ) : null}
+              </div>
+              {uploadError ? (
+                <p className="record-create__error">上傳失敗：{uploadError}</p>
+              ) : null}
+              {uploadPreview?.plan ? (
+                <div className="record-create__preview">
+                  <div className="record-create__preview-summary">
+                    <strong>{uploadPreview.plan.title}</strong>
+                    <span>{uploadPreview.plan.new_page_count} 新頁</span>
+                    <span>{uploadPreview.plan.skipped_count} 略過</span>
+                  </div>
+                  <div className="record-create__preview-list">
+                    {uploadPreview.plan.records?.map((record) => (
+                      <div key={record.title} className="record-create__preview-row">
+                        <span>{record.title}</span>
+                        <span>{record.new_page_count} 新頁</span>
+                        <span>{record.skipped_count} 略過</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {uploadResult ? (
+                <p className="record-create__success">
+                  匯入完成：{uploadResult.imported ?? 0} 新增，{uploadResult.skipped ?? 0} 略過，
+                  {uploadResult.failed ?? 0} 失敗
+                </p>
+              ) : null}
+              <div className="record-create__actions">
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={
+                    uploadBusy ||
+                    Boolean(uploadPreview) ||
+                    (uploadMode === 'zip' && !uploadFile) ||
+                    (uploadMode === 'folder' && uploadFiles.length === 0)
+                  }
+                >
+                  {uploadBusy ? '分析中…' : '預覽上傳'}
+                </button>
+                {uploadPreview ? (
+                  <>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={handleCommitUpload}
+                      disabled={uploadBusy}
+                    >
+                      {uploadBusy ? '上傳中…' : '確認上傳'}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={handleCancelPreview}
+                      disabled={uploadBusy}
+                    >
+                      取消
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            </form>
+          </div>
+        )}
+      </div>
 
       <div className="records-table-card">
         <div className="records-table-toolbar">

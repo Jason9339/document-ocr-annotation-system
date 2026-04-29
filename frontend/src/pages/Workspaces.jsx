@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  Search,
   Plus,
   Folder,
   ArrowRight,
@@ -10,6 +9,8 @@ import {
   Loader2,
   Upload,
   Download,
+  Check,
+  FileArchive,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 
@@ -23,147 +24,125 @@ export default function WorkspacesPage({
   const { loading, options = [], current, error, busy } = workspaceState
   const isLoading = Boolean(loading || busy)
   const isEmpty = !isLoading && options.length === 0
-  const [searchTerm, setSearchTerm] = useState('')
-  const [showCreateModal, setShowCreateModal] = useState(false)
+
+  // Unified modal state
+  const [showModal, setShowModal] = useState(false)
+  const [modalMode, setModalMode] = useState(null) // null | 'new' | 'import'
+  const [modalDone, setModalDone] = useState(false)
+
+  // New workspace
   const [creating, setCreating] = useState(false)
   const [newWorkspace, setNewWorkspace] = useState({ slug: '', title: '' })
   const [createError, setCreateError] = useState(null)
+
+  // Import workspace
+  const [importStep, setImportStep] = useState(1)
   const [importName, setImportName] = useState('')
   const [importFile, setImportFile] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState(null)
-  const [importSummary, setImportSummary] = useState(null)
-
-  const filteredOptions = useMemo(() => {
-    if (!searchTerm.trim()) {
-      return options
-    }
-    const lowered = searchTerm.trim().toLowerCase()
-    return options.filter((workspace) => {
-      const slugMatch = workspace.slug.toLowerCase().includes(lowered)
-      const title = workspace.title ? String(workspace.title).toLowerCase() : ''
-      const titleMatch = title ? title.includes(lowered) : false
-      return slugMatch || titleMatch
-    })
-  }, [options, searchTerm])
 
   const summaryText = useMemo(() => {
-    if (isLoading && options.length === 0) {
-      return '正在載入 Workspace…'
-    }
-    if (!options.length) {
-      return '尚未找到任何 Workspace，請確認伺服器設定。'
-    }
-    const totalRecords = options.reduce(
-      (acc, workspace) => acc + (workspace.records ?? 0),
-      0,
-    )
+    if (isLoading && options.length === 0) return '正在載入 Workspace…'
+    if (!options.length) return '尚未找到任何 Workspace，請確認伺服器設定。'
+    const totalRecords = options.reduce((acc, ws) => acc + (ws.records ?? 0), 0)
     return `共 ${options.length} 個工作區，內含 ${totalRecords} 筆書籍記錄`
   }, [isLoading, options])
 
-  const importNameRequired = Boolean(importFile && !importName.trim())
-
   const handleOpenWorkspace = async (slug) => {
-    if (!slug) {
-      return
-    }
+    if (!slug) return
     const ok = await onSelectWorkspace?.(slug)
-    if (ok) {
-      onNavigate('/records')
-    }
+    if (ok) onNavigate('/records')
   }
 
   const handleExportWorkspace = (slug) => {
-    if (!slug) {
-      return
-    }
+    if (!slug) return
     window.location.href = api.getWorkspaceExportUrl(slug)
   }
 
   const handleEnterActiveWorkspace = () => {
     if (!current?.slug) {
-      if (filteredOptions.length === 1) {
-        handleOpenWorkspace(filteredOptions[0].slug)
-        return
-      }
+      if (options.length === 1) { handleOpenWorkspace(options[0].slug); return }
       window.alert('請先選擇欲進入的工作區。')
       return
     }
     onNavigate('/records')
   }
 
-  const handleOpenCreateModal = () => {
+  const handleOpenModal = () => {
+    setModalMode(null)
+    setModalDone(false)
     setNewWorkspace({ slug: '', title: '' })
     setCreateError(null)
-    setShowCreateModal(true)
+    setImportStep(1)
+    setImportName('')
+    setImportFile(null)
+    setImportError(null)
+    setShowModal(true)
   }
 
-  const handleCloseCreateModal = () => {
-    if (creating) return
-    setShowCreateModal(false)
+  const handleCloseModal = () => {
+    if (creating || importing) return
+    setShowModal(false)
+  }
+
+  const handleAddAnother = () => {
+    setModalMode(null)
+    setModalDone(false)
+    setNewWorkspace({ slug: '', title: '' })
+    setCreateError(null)
+    setImportStep(1)
+    setImportName('')
+    setImportFile(null)
+    setImportError(null)
   }
 
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
     const slug = newWorkspace.slug.trim()
     const title = newWorkspace.title.trim()
-
-    if (!slug) {
-      setCreateError('工作區 ID 不可為空白')
-      return
-    }
-
+    if (!slug) { setCreateError('工作區 ID 不可為空白'); return }
     setCreating(true)
     setCreateError(null)
-
     try {
       const success = await onCreateWorkspace({ slug, title: title || slug })
-      if (success) {
-        setShowCreateModal(false)
-        setNewWorkspace({ slug: '', title: '' })
-      }
-    } catch (error) {
-      setCreateError(error.message || '建立工作區失敗')
+      if (success) setModalDone(true)
+    } catch (err) {
+      setCreateError(err.message || '建立工作區失敗')
     } finally {
       setCreating(false)
     }
   }
 
-  const handleImportSubmit = async (event) => {
-    event.preventDefault()
+  const handleImportSubmit = async () => {
     const name = importName.trim()
-    if (!name) {
-      setImportError('Workspace 名稱不可為空白')
-      return
-    }
-    if (!importFile) {
-      setImportError('請選擇 Workspace 匯出 ZIP')
-      return
-    }
-
+    if (!name) { setImportError('Workspace 名稱不可為空白'); return }
+    if (!importFile) { setImportError('請選擇 Workspace 匯出 ZIP'); return }
     setImporting(true)
     setImportError(null)
-    setImportSummary(null)
     try {
-      const result = await api.importWorkspace({ file: importFile, name })
-      setImportSummary(result.summary ?? null)
-      setImportName('')
-      setImportFile(null)
+      await api.importWorkspace({ file: importFile, name })
       await Promise.resolve(onRefreshWorkspaces?.())
-    } catch (error) {
-      setImportError(error.message || '匯入 Workspace 失敗')
+      setModalDone(true)
+    } catch (err) {
+      setImportError(err.message || '匯入 Workspace 失敗')
     } finally {
       setImporting(false)
     }
   }
 
-  const breadcrumbContainer = document.querySelector('.app-header__breadcrumb')
+  const fmtSize = (b) => !b ? '' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB'
 
+  const breadcrumbContainer = document.querySelector('.app-header__breadcrumb')
   const breadcrumb = (
     <nav className="breadcrumb">
       <span className="breadcrumb__item">工作區</span>
     </nav>
   )
+
+  const doneLabel = modalMode === 'new'
+    ? (newWorkspace.title || newWorkspace.slug)
+    : importName
 
   return (
     <section className="page workspaces-page">
@@ -179,7 +158,7 @@ export default function WorkspacesPage({
             type="button"
             className="ghost-button"
             onClick={handleEnterActiveWorkspace}
-            disabled={isLoading || (!current && filteredOptions.length === 0)}
+            disabled={isLoading || options.length === 0}
           >
             <ArrowRight size={16} />
             進入
@@ -187,30 +166,18 @@ export default function WorkspacesPage({
           <button
             type="button"
             className="primary-button"
-            onClick={handleOpenCreateModal}
+            onClick={handleOpenModal}
             disabled={isLoading}
           >
             <Plus size={16} />
-            新增工作區
+            新增 / 匯入工作區
           </button>
         </div>
       </div>
 
       <div className="workspace-toolbar">
-        <div className="workspace-search">
-          <Search size={18} className="workspace-search__icon" />
-          <input
-            type="text"
-            placeholder="搜尋工作區..."
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            disabled={isLoading}
-          />
-        </div>
         <div className="workspace-toolbar__meta">
-          <span>
-            {filteredOptions.length} / {options.length} 個工作區
-          </span>
+          <span>{options.length} 個工作區</span>
           <button
             type="button"
             className="workspace-toolbar__refresh"
@@ -225,64 +192,6 @@ export default function WorkspacesPage({
 
       {error ? <p className="error-banner">無法載入 Workspace：{error}</p> : null}
 
-      <section className="workspace-import">
-        <div className="workspace-import__header">
-          <div>
-            <h2>匯入 Workspace</h2>
-            <p>從完整 workspace ZIP 建立新工作區；匯入時會忽略縮圖快取。</p>
-          </div>
-          <Upload size={22} aria-hidden="true" />
-        </div>
-        <form className="workspace-import__form" onSubmit={handleImportSubmit}>
-          <label className={`input ${importNameRequired ? 'input--invalid' : ''}`}>
-            <span className="input__label-row">
-              Workspace 名稱
-              <strong>必填</strong>
-            </span>
-            <input
-              type="text"
-              value={importName}
-              onChange={(event) => setImportName(event.target.value)}
-              placeholder="例如：羅家倫資料"
-              disabled={importing}
-              required
-              aria-invalid={importNameRequired}
-              aria-describedby="workspace-import-name-help"
-            />
-            <small id="workspace-import-name-help">
-              匯入後會以這個名稱顯示，不會沿用 ZIP 內原本的 workspace title。
-            </small>
-          </label>
-          <label className="input">
-            <span>Workspace 匯出 ZIP</span>
-            <input
-              type="file"
-              accept=".zip"
-              onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
-              disabled={importing}
-            />
-          </label>
-          <button
-            type="submit"
-            className="primary-button"
-            disabled={importing || !importName.trim() || !importFile}
-            title={importNameRequired ? '請先填寫 Workspace 名稱' : undefined}
-          >
-            {importing ? <Loader2 size={16} className="spin" /> : <Upload size={16} />}
-            {importNameRequired ? '先填名稱' : '匯入'}
-          </button>
-        </form>
-        {importNameRequired ? (
-          <p className="workspace-import__hint">已選擇 ZIP，請先填左側 Workspace 名稱。</p>
-        ) : null}
-        {importError ? <p className="workspace-import__error">{importError}</p> : null}
-        {importSummary ? (
-          <p className="workspace-import__success">
-            匯入完成：{importSummary.imported ?? 0} 頁，{importSummary.failed ?? 0} 失敗
-          </p>
-        ) : null}
-      </section>
-
       {isLoading && !options.length ? (
         <div className="workspaces-empty">載入中，請稍候…</div>
       ) : null}
@@ -294,10 +203,9 @@ export default function WorkspacesPage({
       ) : null}
 
       <div className="workspace-grid">
-        {filteredOptions.map((workspace) => {
+        {options.map((workspace) => {
           const isActive = current?.slug === workspace.slug
-          const displayName =
-            (workspace.title && String(workspace.title).trim()) || workspace.slug
+          const displayName = (workspace.title && String(workspace.title).trim()) || workspace.slug
           return (
             <article key={workspace.slug} className="workspace-card">
               <div className="workspace-card__header">
@@ -307,14 +215,10 @@ export default function WorkspacesPage({
                 <div className="workspace-card__titles">
                   <h3>{displayName}</h3>
                   <p className="workspace-card__slug">{workspace.slug}</p>
-                  {workspace.path ? (
-                    <p className="workspace-card__path">{workspace.path}</p>
-                  ) : null}
+                  {workspace.path ? <p className="workspace-card__path">{workspace.path}</p> : null}
                 </div>
                 {isActive ? (
-                  <span className="workspace-card__status workspace-card__status--active">
-                    使用中
-                  </span>
+                  <span className="workspace-card__status workspace-card__status--active">使用中</span>
                 ) : (
                   <span className="workspace-card__status">可供使用</span>
                 )}
@@ -331,9 +235,7 @@ export default function WorkspacesPage({
               </div>
               <div className="workspace-card__footer">
                 <div className="workspace-card__hint">
-                  {isActive
-                    ? '已選定，可直接管理書籍'
-                    : '切換後即可管理此工作區內的資料'}
+                  {isActive ? '已選定，可直接管理書籍' : '切換後即可管理此工作區內的資料'}
                 </div>
                 <button
                   type="button"
@@ -358,89 +260,229 @@ export default function WorkspacesPage({
         })}
       </div>
 
-      {showCreateModal && (
-        <div className="modal-overlay" onClick={handleCloseCreateModal}>
+      {/* Unified add / import workspace modal */}
+      {showModal && (
+        <div className="modal-overlay" onClick={handleCloseModal}>
           <div
-            className="modal-container"
+            className="modal-container ws-unified-modal"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="create-workspace-title"
+            aria-labelledby="ws-modal-title"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
               <div>
-                <h2 id="create-workspace-title" className="modal-title">
-                  新增工作區
-                </h2>
-                <p className="modal-subtitle">
-                  建立一個新的工作區來管理您的文件標註資料
-                </p>
+                <h2 id="ws-modal-title" className="modal-title">新增工作區</h2>
+                {modalMode && !modalDone && (
+                  <p className="modal-subtitle">
+                    {modalMode === 'new' ? '建立一個全新的工作區' : '從 ZIP 匯入現有工作區'}
+                  </p>
+                )}
               </div>
               <button
                 type="button"
                 className="modal-close"
-                onClick={handleCloseCreateModal}
-                disabled={creating}
+                onClick={handleCloseModal}
+                disabled={creating || importing}
                 aria-label="關閉"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleCreateSubmit} className="modal-body">
-              <label className="input">
-                <span>工作區 ID（目錄名稱）*</span>
-                <input
-                  type="text"
-                  value={newWorkspace.slug}
-                  onChange={(e) =>
-                    setNewWorkspace((prev) => ({ ...prev, slug: e.target.value }))
-                  }
-                  placeholder="例如：project-2024"
-                  disabled={creating}
-                  required
-                />
-                <small style={{ color: '#666', marginTop: '4px' }}>
-                  只能包含英文字母、數字、連字號和底線
-                </small>
-              </label>
-
-              <label className="input">
-                <span>顯示名稱（可選）</span>
-                <input
-                  type="text"
-                  value={newWorkspace.title}
-                  onChange={(e) =>
-                    setNewWorkspace((prev) => ({ ...prev, title: e.target.value }))
-                  }
-                  placeholder="例如：2024 專案"
-                  disabled={creating}
-                />
-              </label>
-
-              {createError ? <p className="form-error">{createError}</p> : null}
-
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={handleCloseCreateModal}
-                  disabled={creating}
-                >
-                  取消
-                </button>
-                <button type="submit" className="primary-button" disabled={creating}>
-                  {creating ? (
-                    <>
-                      <Loader2 size={16} className="spin" />
-                      <span>建立中…</span>
-                    </>
-                  ) : (
-                    '建立工作區'
-                  )}
-                </button>
+            {/* Success screen */}
+            {modalDone && (
+              <div className="ws-modal-success">
+                <div className="ws-modal-success__icon"><Check size={26} /></div>
+                <div className="ws-modal-success__title">
+                  {modalMode === 'new' ? '工作區已建立！' : '匯入成功！'}
+                </div>
+                <div className="ws-modal-success__desc">「{doneLabel}」已新增到工作區列表</div>
+                <div className="ws-modal-success__actions">
+                  <button type="button" className="primary-button" onClick={handleCloseModal}>完成</button>
+                  <button type="button" className="ghost-button" onClick={handleAddAnother}>再新增一個</button>
+                </div>
               </div>
-            </form>
+            )}
+
+            {/* Mode selection */}
+            {!modalMode && !modalDone && (
+              <div className="modal-body">
+                <p className="ws-modal-hint">請選擇要建立全新工作區，或匯入現有的工作區備份：</p>
+                <div className="ws-modal-choices">
+                  <button type="button" className="ws-modal-choice" onClick={() => setModalMode('new')}>
+                    <div className="ws-modal-choice__icon"><Plus size={22} /></div>
+                    <div className="ws-modal-choice__content">
+                      <div className="ws-modal-choice__title">建立全新工作區</div>
+                      <div className="ws-modal-choice__desc">從頭開始，新增書籍與頁面資料</div>
+                    </div>
+                    <ArrowRight size={16} className="ws-modal-choice__arrow" />
+                  </button>
+                  <button type="button" className="ws-modal-choice" onClick={() => setModalMode('import')}>
+                    <div className="ws-modal-choice__icon"><Upload size={22} /></div>
+                    <div className="ws-modal-choice__content">
+                      <div className="ws-modal-choice__title">匯入現有工作區</div>
+                      <div className="ws-modal-choice__desc">從 workspace ZIP 壓縮檔還原資料</div>
+                    </div>
+                    <ArrowRight size={16} className="ws-modal-choice__arrow" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* New workspace form */}
+            {modalMode === 'new' && !modalDone && (
+              <form className="modal-body" onSubmit={handleCreateSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <label className="input">
+                  <span>工作區 ID（目錄名稱）*</span>
+                  <input
+                    type="text"
+                    value={newWorkspace.slug}
+                    onChange={(e) => setNewWorkspace((prev) => ({ ...prev, slug: e.target.value }))}
+                    placeholder="例如：project-2024"
+                    disabled={creating}
+                    required
+                    autoFocus
+                  />
+                  <small>只能包含英文字母、數字、連字號和底線</small>
+                </label>
+                <label className="input">
+                  <span>顯示名稱（可選）</span>
+                  <input
+                    type="text"
+                    value={newWorkspace.title}
+                    onChange={(e) => setNewWorkspace((prev) => ({ ...prev, title: e.target.value }))}
+                    placeholder="例如：羅家倫文稿"
+                    disabled={creating}
+                  />
+                </label>
+                {createError ? <p className="form-error">{createError}</p> : null}
+                <div className="ws-step-footer">
+                  <button type="button" className="ghost-button" onClick={() => setModalMode(null)} disabled={creating}>← 返回</button>
+                  <button type="submit" className="primary-button" disabled={creating || !newWorkspace.slug.trim()}>
+                    {creating
+                      ? <><Loader2 size={16} className="spin" />建立中…</>
+                      : <><Plus size={15} />建立工作區</>}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Import workspace (3-step) */}
+            {modalMode === 'import' && !modalDone && (
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                {/* Step indicators */}
+                <div className="ws-import-steps">
+                  {['命名', '選擇 ZIP', '確認'].map((label, i) => (
+                    <div key={i} className="ws-import-steps__item">
+                      <div className={`ws-import-steps__circle${importStep > i + 1 ? ' ws-import-steps__circle--done' : importStep === i + 1 ? ' ws-import-steps__circle--active' : ''}`}>
+                        {importStep > i + 1 ? <Check size={11} /> : i + 1}
+                      </div>
+                      <span className={`ws-import-steps__label${importStep === i + 1 ? ' ws-import-steps__label--active' : ''}`}>{label}</span>
+                      {i < 2 && <div className={`ws-import-steps__line${importStep > i + 1 ? ' ws-import-steps__line--done' : ''}`} />}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Step 1: Name */}
+                {importStep === 1 && (
+                  <div className="ws-import-step">
+                    <label className="input">
+                      <span>Workspace 名稱 *</span>
+                      <input
+                        autoFocus
+                        type="text"
+                        value={importName}
+                        onChange={(e) => setImportName(e.target.value)}
+                        placeholder="例如：羅家倫文稿"
+                        disabled={importing}
+                        required
+                        onKeyDown={(e) => e.key === 'Enter' && importName.trim() && setImportStep(2)}
+                      />
+                      <small>匯入後以此名稱顯示，不會套用 ZIP 內的 workspace title</small>
+                    </label>
+                    <div className="ws-step-footer">
+                      <button type="button" className="ghost-button" onClick={() => setModalMode(null)}>← 返回</button>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={!importName.trim()}
+                        onClick={() => setImportStep(2)}
+                      >
+                        繼續 <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 2: File */}
+                {importStep === 2 && (
+                  <div className="ws-import-step">
+                    <label className="input">
+                      <span>選擇 Workspace ZIP 檔案</span>
+                      <input
+                        type="file"
+                        accept=".zip"
+                        onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                        disabled={importing}
+                      />
+                    </label>
+                    {importFile && (
+                      <div className="ws-import-file-preview">
+                        <FileArchive size={15} style={{ color: '#b45309', flexShrink: 0 }} />
+                        <span className="ws-import-file-preview__name">{importFile.name}</span>
+                        <span className="ws-import-file-preview__size">{fmtSize(importFile.size)}</span>
+                        <button type="button" className="ws-import-file-clear" onClick={() => setImportFile(null)}>
+                          <X size={13} />
+                        </button>
+                      </div>
+                    )}
+                    <div className="ws-step-footer">
+                      <button type="button" className="ghost-button" onClick={() => setImportStep(1)}>← 返回</button>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={!importFile}
+                        onClick={() => setImportStep(3)}
+                      >
+                        繼續 <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 3: Confirm */}
+                {importStep === 3 && (
+                  <div className="ws-import-step">
+                    <div>
+                      <p className="ws-import-confirm__label">確認匯入資訊</p>
+                      <div className="ws-import-confirm__table">
+                        {[['Workspace 名稱', importName], ['檔案名稱', importFile?.name], ['檔案大小', fmtSize(importFile?.size)]].map(([k, v]) => (
+                          <div key={k} className="ws-import-confirm__row">
+                            <span className="ws-import-confirm__key">{k}</span>
+                            <span className="ws-import-confirm__val">{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {importError ? <p className="form-error">{importError}</p> : null}
+                    <div className="ws-step-footer">
+                      <button type="button" className="ghost-button" onClick={() => setImportStep(2)} disabled={importing}>← 返回</button>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={handleImportSubmit}
+                        disabled={importing}
+                      >
+                        {importing
+                          ? <><Loader2 size={16} className="spin" />匯入中…</>
+                          : <><Upload size={15} />確認匯入</>}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

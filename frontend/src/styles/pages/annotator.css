@@ -22,7 +22,7 @@
 .annotator-subtitle {
   margin: 0.35rem 0 0;
   color: #325b4c;
-  font-size: 0.95rem;
+  font-size: var(--text-base);
 }
 
 .annotator-subtitle code {
@@ -99,7 +99,7 @@ button.annotator-info-button:focus-visible {
 }
 
 .annotation-card__direction-label {
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   color: #2b4f42;
   white-space: nowrap;
 }
@@ -125,15 +125,15 @@ button.annotator-info-button:focus-visible {
 }
 
 .annotation-card__direction-preview-label {
-  font-size: 0.7rem;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
   color: #2b4f42;
   letter-spacing: 0.05em;
   flex-shrink: 0;
 }
 
 .annotation-card__direction-preview-text {
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   color: #0f1f25;
   white-space: pre-wrap;
   word-break: break-word;
@@ -146,8 +146,8 @@ button.annotation-card__direction-button {
   color: #1d3b30;
   border-radius: 999px;
   padding: 0.18rem 0.6rem;
-  font-size: 0.78rem;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -218,7 +218,7 @@ button.annotation-card__direction-toggle:focus-visible {
   border: 1px solid rgba(11, 61, 46, 0.2);
   border-radius: 10px;
   padding: 0 0.55rem;
-  font-size: 0.86rem;
+  font-size: var(--text-sm);
   line-height: 34px;
   color: #0f1f25;
   background: #fffef9;
@@ -233,7 +233,7 @@ button.annotation-card__direction-toggle:focus-visible {
 }
 
 .annotator-text-hint {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: rgba(15, 31, 37, 0.65);
   margin: 0.2rem 0 0.6rem;
 }
@@ -278,8 +278,8 @@ button.annotator-mode-button {
   border: 1px solid rgba(15, 31, 37, 0.2);
   background: #f8fafc;
   color: #111827;
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
   cursor: pointer;
   min-width: 94px;
   letter-spacing: 0.01em;
@@ -289,7 +289,7 @@ button.annotator-mode-button {
 button.annotator-mode-button.active {
   background: #e2e8f0;
   border-color: rgba(15, 31, 37, 0.4);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 button.annotator-mode-button:disabled {
@@ -350,7 +350,7 @@ button.annotator-tool-button[data-toolbar].active {
   background: #111827;
   border-color: #111827;
   color: #ffffff;
-  font-weight: 700;
+  font-weight: var(--font-bold);
 }
 
 button.annotator-tool-button[data-toolbar]:disabled {
@@ -364,8 +364,8 @@ button.annotator-tool-button[data-toolbar]:focus-visible {
 }
 
 .annotator-tool-button span {
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
   letter-spacing: 0.02em;
 }
 
@@ -378,7 +378,7 @@ button.annotator-tool-button.active {
   background: #111827;
   border-color: #111827;
   color: #ffffff;
-  font-weight: 700;
+  font-weight: var(--font-bold);
 }
 
 button.annotator-tool-button[data-toolbar]:disabled,
@@ -450,7 +450,7 @@ button.annotator-tool-button[data-toolbar]:focus-visible,
 
 .annotator-placeholder--compact {
   padding: 0.6rem;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   text-align: center;
 }
 
@@ -503,10 +503,10 @@ button.annotator-tool-button[data-toolbar]:focus-visible,
   border: 1px solid #d4d4d8;
   padding: 0.4rem 0.9rem;
   border-radius: 999px;
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   color: #111827;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -561,8 +561,8 @@ button.annotator-tool-button[data-toolbar]:focus-visible,
   all: unset;
   padding: 0.35rem 1rem;
   border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease;
 }
@@ -598,7 +598,7 @@ button.annotator-tool-button[data-toolbar]:focus-visible,
   border: 1px solid rgba(11, 61, 46, 0.24);
   border-radius: 999px;
   padding: 0.45rem 0.9rem;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   cursor: pointer;
 }
 
@@ -630,7 +630,7 @@ button.annotator-tool-button[data-toolbar]:focus-visible,
   flex-direction: column;
   gap: 0.3rem;
   flex: 1 1 180px;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: #245546;
 }
 
@@ -640,7 +640,7 @@ button.annotator-tool-button[data-toolbar]:focus-visible,
   padding: 0.4rem 0.6rem;
   background: #fffdf8;
   color: #0b3d2e;
-  font-size: 0.9rem;
+  font-size: var(--text-base);
 }
 
 button.annotator-group-panel__button {
@@ -653,8 +653,8 @@ button.annotator-group-panel__button {
   background: #1b5e4a;
   color: #ffffff;
   padding: 0.45rem 0.85rem;
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -691,8 +691,8 @@ button.annotator-group-panel__button:disabled {
   gap: 0.45rem;
   padding: 0.35rem 0.7rem;
   border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
   color: #ffffff;
   background: #2563eb;
   min-width: 110px;
@@ -711,7 +711,7 @@ button.annotator-group-panel__button:disabled {
   width: 30px;
   height: 30px;
   border-radius: 6px;
-  font-size: 0.9rem;
+  font-size: var(--text-base);
   cursor: pointer;
   text-align: center;
 }
@@ -738,14 +738,14 @@ button.annotator-group-panel__button:disabled {
 
 .full-view-panel__intro h3 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: var(--text-md);
   color: #0f1f25;
 }
 
 .full-view-panel__intro p {
   margin: 0.25rem 0 0;
   color: #4b5563;
-  font-size: 0.9rem;
+  font-size: var(--text-base);
 }
 
 .full-view-format {
@@ -755,8 +755,8 @@ button.annotator-group-panel__button:disabled {
 }
 
 .full-view-format__label {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
   color: #1f2937;
 }
 
@@ -777,8 +777,8 @@ button.annotator-group-panel__button:disabled {
   color: #0b3d2e;
   border-radius: 0.75rem;
   padding: 0.45rem 0.85rem;
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -843,12 +843,12 @@ button.annotator-group-panel__button:disabled {
 }
 
 .full-view-format__title {
-  font-weight: 600;
-  font-size: 0.95rem;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-base);
 }
 
 .full-view-format__description {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: #4b5563;
 }
 
@@ -887,19 +887,19 @@ button.annotator-group-panel__button:disabled {
   min-width: 36px;
   padding: 0.15rem 0.65rem;
   border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--font-bold);
   color: #ffffff;
 }
 
 .full-view-group__meta {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: #4b5563;
 }
 
 .full-view__paragraph {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: var(--text-base);
   color: #111827;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -939,8 +939,8 @@ button.annotator-group-panel__button:disabled {
   justify-content: center;
   align-items: center;
   border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--font-bold);
   color: #ffffff;
   padding: 0.1rem 0.55rem;
 }
@@ -973,7 +973,7 @@ button.annotator-group-panel__button:disabled {
 .annotator-save-indicator {
   margin: 0;
   color: #3f6958;
-  font-size: 0.9rem;
+  font-size: var(--text-base);
 }
 
 .annotation-card {
@@ -1002,7 +1002,7 @@ button.annotator-group-panel__button:disabled {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: #174a38;
 }
 
@@ -1010,7 +1010,7 @@ button.annotator-group-panel__button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  font-weight: 700;
+  font-weight: var(--font-bold);
   letter-spacing: 0.08em;
 }
 
@@ -1028,7 +1028,7 @@ button.annotator-group-panel__button:disabled {
 }
 
 .annotation-card__order {
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   color: #7b4514;
 }
 
@@ -1049,7 +1049,7 @@ button.annotator-group-panel__button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.18rem;
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   color: #2b4f42;
   flex: 1 1 calc(50% - 0.4rem);
   min-width: 150px;
@@ -1066,7 +1066,7 @@ button.annotator-group-panel__button:disabled {
   border-radius: 8px;
   border: 1px solid rgba(11, 61, 46, 0.2);
   padding: 0.28rem 0.45rem;
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   background: #fffdf8;
   color: #0b3d2e;
 }
@@ -1078,9 +1078,9 @@ button.annotator-group-panel__button:disabled {
   border-radius: 8px;
   background: rgba(183, 28, 28, 0.1);
   color: #8b1a1a;
-  font-size: 0.74rem;
+  font-size: var(--text-xs);
   line-height: 1.1;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease;
 }
@@ -1096,7 +1096,7 @@ button.annotator-group-panel__button:disabled {
   border: 1px solid rgba(11, 61, 46, 0.24);
   border-radius: 999px;
   padding: 0.45rem 1rem;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   cursor: pointer;
 }
 
@@ -1135,7 +1135,7 @@ button.annotator-group-panel__button:disabled {
 .annotator-help-header h3 {
   margin: 0;
   color: #0b3d2e;
-  font-size: 1.1rem;
+  font-size: var(--text-md);
 }
 
 .annotator-help-header button {
@@ -1167,13 +1167,13 @@ button.annotator-group-panel__button:disabled {
 }
 
 .annotator-help-item strong {
-  font-size: 0.95rem;
+  font-size: var(--text-base);
   color: #0b3d2e;
 }
 
 .annotator-help-item p {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: #475569;
 }
 
@@ -1182,7 +1182,7 @@ button.annotator-group-panel__button:disabled {
   border-radius: 0.75rem;
   padding: 1.25rem;
   text-align: center;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: #7f8c8d;
   background: rgba(248, 250, 252, 0.85);
 }
@@ -1234,8 +1234,8 @@ button.annotator-group-panel__button:disabled {
   cursor: pointer;
   transition: all 0.15s ease;
   padding: 0;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
 }
 
 .multi-selection-toolbar .multi-selection-toolbar__button:hover {
@@ -1293,8 +1293,8 @@ button.annotator-group-panel__button:disabled {
 
 .direction-help-modal__header h3 {
   margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
   color: #111827;
 }
 
@@ -1333,8 +1333,8 @@ button.annotator-group-panel__button:disabled {
 
 .direction-help-item h4 {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
   color: #111827;
   display: flex;
   align-items: center;
@@ -1356,13 +1356,13 @@ button.annotator-group-panel__button:disabled {
 .direction-help-item__placeholder p {
   margin: 0;
   color: #6b7280;
-  font-size: 0.875rem;
+  font-size: var(--text-base);
 }
 
 .annotator-guide-body p {
   margin: 0 0 0.45rem;
   color: #374151;
-  font-size: 0.95rem;
+  font-size: var(--text-base);
 }
 
 .annotator-guide-body ul {
@@ -1375,7 +1375,7 @@ button.annotator-group-panel__button:disabled {
 
 .annotator-guide-body li {
   color: #1f2937;
-  font-size: 0.92rem;
+  font-size: var(--text-base);
 }
 
 .annotator-guide-stepper {
@@ -1392,13 +1392,13 @@ button.annotator-group-panel__button:disabled {
 }
 
 .annotator-guide-stepper__title {
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: var(--text-md);
+  font-weight: var(--font-bold);
   color: #0f1f25;
 }
 
 .annotator-guide-stepper__counter {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: #4b5563;
 }
 
@@ -1434,7 +1434,7 @@ button.annotator-group-panel__button:disabled {
   color: #0b3d2e;
   border-radius: 0.6rem;
   padding: 0.45rem 1rem;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease;
 }

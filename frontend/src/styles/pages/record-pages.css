@@ -14,7 +14,7 @@
 
 .records-panel {
   background: #ffffff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e7e3dc;
   border-radius: 1rem;
   padding: 1.25rem 1.5rem;
   box-shadow: 0 16px 30px rgba(15, 23, 42, 0.05);
@@ -22,8 +22,8 @@
 
 .records-summary {
   margin: 0.25rem 0 0;
-  color: #325b4c;
-  font-size: 0.95rem;
+  color: #78716c;
+  font-size: var(--text-base);
 }
 
 .records-actions {
@@ -40,7 +40,7 @@
 
 .batch-metadata-panel {
   background: #ffffff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e7e3dc;
   border-radius: 1rem;
   padding: 1.5rem;
   display: flex;
@@ -60,13 +60,13 @@
 
 .batch-metadata-panel__header h3 {
   margin: 0;
-  font-size: 1.25rem;
-  color: #111827;
+  font-size: var(--text-lg);
+  color: #1c1917;
 }
 
 .batch-metadata-panel__header p {
   margin: 0.25rem 0 0;
-  color: #6b7280;
+  color: #78716c;
 }
 
 .batch-metadata-panel__controls {
@@ -80,8 +80,8 @@
   display: flex;
   align-items: center;
   gap: 1.5rem;
-  font-size: 0.9rem;
-  color: #6b7280;
+  font-size: var(--text-base);
+  color: #78716c;
 }
 
 .batch-metadata-panel__mode input {
@@ -94,7 +94,7 @@
   justify-content: space-between;
   gap: 1.25rem;
   background: #ffffff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e7e3dc;
   border-radius: 1rem;
   padding: 1.25rem 1.5rem;
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
@@ -105,8 +105,8 @@
   margin: 1rem 0;
   padding: 0.85rem 1.1rem;
   border-radius: 0.9rem;
-  background: rgba(11, 61, 46, 0.12);
-  color: #0b3d2e;
+  background: rgba(180, 83, 9, 0.1);
+  color: #92400e;
 }
 
 .record-pages__notice--error {
@@ -123,8 +123,8 @@
 
 .record-pages__meta-label {
   display: block;
-  font-size: 0.85rem;
-  color: #6b7280;
+  font-size: var(--text-sm);
+  color: #78716c;
 }
 
 .record-pages__controls {
@@ -150,7 +150,7 @@
 
 .record-card {
   background: #ffffff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e7e3dc;
   border-radius: 1rem;
   overflow: hidden;
   display: flex;
@@ -169,8 +169,8 @@
 }
 
 .record-card--selected {
-  border-color: #2563eb;
-  box-shadow: 0 20px 35px rgba(37, 99, 235, 0.18);
+  border-color: #b45309;
+  box-shadow: 0 20px 35px rgba(180, 83, 9, 0.18);
 }
 
 .record-card__select {
@@ -189,7 +189,7 @@
 .record-card__select input {
   width: 1.05rem;
   height: 1.05rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d1c9bc;
   border-radius: 0.25rem;
   appearance: none;
   background: #ffffff;
@@ -202,13 +202,13 @@
 }
 
 .record-card__select input:focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid #b45309;
   outline-offset: 2px;
 }
 
 .record-card__select input:checked {
-  background: #111827;
-  border-color: #111827;
+  background: #1c1917;
+  border-color: #1c1917;
 }
 
 .record-card__select input:checked::after {
@@ -227,7 +227,7 @@
 .record-card__image {
   width: 100%;
   height: 180px;
-  background: #f3f4f6;
+  background: #f5f2ef;
   display: block;
   overflow: hidden;
 }
@@ -246,21 +246,21 @@
 }
 
 .record-card__record {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #6b7280;
+  color: #78716c;
 }
 
 .record-card__filename {
-  font-weight: 600;
-  color: #111827;
+  font-weight: var(--font-semibold);
+  color: #1c1917;
 }
 
 .record-card__link {
-  color: #2563eb;
+  color: #b45309;
   text-decoration: none;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 .record-card__link:hover {
@@ -280,7 +280,7 @@
   gap: 1rem;
   margin-top: 1.5rem;
   padding: 1.25rem 0;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e7e3dc;
 }
 
 .record-pages__pagination {
@@ -297,10 +297,10 @@
   justify-content: center;
   gap: 0.35rem;
   padding: 0.5rem 0.9rem;
-  font-size: 0.9rem;
-  color: #9ca3af;
+  font-size: var(--text-base);
+  color: #a8a29e;
   background: #ffffff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e7e3dc;
   border-radius: 0.75rem;
   cursor: pointer;
   transition: none;
@@ -313,8 +313,8 @@
 
 .page .record-pages__pagination-btn:disabled {
   cursor: not-allowed;
-  color: #d1d5db;
-  background: #f9fafb;
+  color: #d1c9bc;
+  background: #faf9f7;
 }
 
 .page .record-pages__pagination-btn--page {
@@ -322,14 +322,14 @@
 }
 
 .page .record-pages__pagination-btn--active {
-  background: #111827;
+  background: #1c1917;
   color: #ffffff;
-  border-color: #111827;
+  border-color: #1c1917;
   cursor: default;
 }
 
 .record-pages__pagination-ellipsis {
-  color: #9ca3af;
+  color: #a8a29e;
   padding: 0 0.3rem;
 }
 
