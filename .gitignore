@@ -49,3 +49,9 @@ lclma/
 
 # Generated files for reference/testing
 generated-*.html
+
+# Compiled PaddlePaddle wheels (232MB+, store separately from git)
+*.whl
+
+# Docker image archives (store separately from git)
+*.tar.gz

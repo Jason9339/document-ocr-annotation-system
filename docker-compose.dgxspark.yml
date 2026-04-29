@@ -1,0 +1,42 @@
+# DGX Spark override — use with:
+#   sudo docker compose -f docker-compose.yml -f docker-compose.dgxspark.yml up
+#
+# Prerequisites:
+#   1. paddlepaddle_gpu-*-linux_aarch64.whl must exist in the project root
+#      (run scripts/build_paddle_dgxspark.sh to produce it)
+#   2. Image must be built:
+#      sudo docker build -f backend/Dockerfile.dgxspark -t paddleocr-backend:dgxspark .
+#
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.dgxspark
+    image: paddleocr-backend:dgxspark
+    command: >
+      sh -c "python3 manage.py migrate &&
+             python3 manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - paddleocr_models:/root/.paddleocr
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.dgxspark
+    image: paddleocr-backend:dgxspark
+    command: rq worker --url redis://redis:6379/0 ocr
+    runtime: nvidia
+    environment:
+      - USE_GPU=1
+    volumes:
+      - paddleocr_models:/root/.paddleocr
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  paddleocr_models:

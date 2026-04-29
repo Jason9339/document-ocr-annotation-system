@@ -1,0 +1,76 @@
+# DGX Spark (aarch64 + sm_121 + CUDA 13.0) backend image
+#
+# Prerequisites before docker build:
+#   1. Run scripts/build_paddle_dgxspark.sh on the host to compile the wheel
+#   2. The wheel is auto-copied to the project root by the script.
+#
+# nvcr.io/nvidia/cuda:13.0 is not yet published; we use ubuntu:24.04 and
+# install cuDNN + NCCL from the NVIDIA CUDA SBSA repo directly.
+# The CUDA runtime (libcudart) is injected at runtime by nvidia-container-toolkit
+# when the container is started with --gpus all.
+#
+FROM ubuntu:24.04
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# System deps + NVIDIA CUDA SBSA repo → cuDNN 9 + NCCL
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3 python3-pip \
+        libopenblas-dev libgomp1 \
+        libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
+        curl ca-certificates gnupg \
+    && curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/3bf863cc.pub \
+       | gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa /" \
+       > /etc/apt/sources.list.d/cuda.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        cuda-cudart-13-0 \
+        libcublas-13-0 \
+        libcudnn9-cuda-13 \
+        libnccl2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install paddleocr first (will pull in CPU paddle as a dep, which we override below)
+COPY backend/requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
+
+# Override CPU paddle with the self-compiled aarch64 GPU wheel
+COPY paddlepaddle_gpu-*-linux_aarch64.whl /tmp/
+RUN pip3 install --no-cache-dir --break-system-packages \
+        /tmp/paddlepaddle_gpu-*-linux_aarch64.whl \
+        --force-reinstall \
+    && rm /tmp/paddlepaddle_gpu-*-linux_aarch64.whl
+
+# PaddlePaddle dlopen's unversioned .so names, but runtime packages only ship
+# versioned symlinks. Create the missing unversioned symlinks for cuBLAS,
+# cuDNN, and cuDNN sub-libraries.
+RUN CUDA_LIB=/usr/local/cuda/targets/sbsa-linux/lib \
+    && CUDNN_LIB=/usr/lib/aarch64-linux-gnu \
+    # cuBLAS / cuDART (installed from CUDA SBSA repo)
+    && ln -sf "$CUDA_LIB/libcublasLt.so.13"  /usr/local/lib/libcublasLt.so \
+    && ln -sf "$CUDA_LIB/libcublas.so.13"    /usr/local/lib/libcublas.so \
+    && ln -sf "$CUDA_LIB/libcudart.so.13"    /usr/local/lib/libcudart.so \
+    # cuDNN 9 main + sub-libraries (installed from libcudnn9-cuda-13)
+    && for lib in \
+        libcudnn \
+        libcudnn_adv \
+        libcudnn_cnn \
+        libcudnn_graph \
+        libcudnn_heuristic \
+        libcudnn_ops \
+        libcudnn_engines_precompiled \
+        libcudnn_engines_runtime_compiled \
+        libcudnn_engines_tensor_ir \
+    ; do \
+        ln -sf "$CUDNN_LIB/${lib}.so.9" /usr/local/lib/${lib}.so ; \
+    done \
+    && ldconfig
+
+# App source mounted at runtime for live reload
