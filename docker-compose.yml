@@ -54,6 +54,7 @@ services:
       - WORKSPACES_ROOT=/workspace_samples
       - DJANGO_SETTINGS_MODULE=config.settings
       - USE_GPU=1  # Enable GPU for PaddleOCR
+      - FLAGS_fraction_of_gpu_memory_to_use=0.1
     depends_on:
       - redis
     deploy:

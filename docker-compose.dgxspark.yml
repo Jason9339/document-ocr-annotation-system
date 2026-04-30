@@ -28,6 +28,7 @@ services:
     runtime: nvidia
     environment:
       - USE_GPU=1
+      - FLAGS_fraction_of_gpu_memory_to_use=0.1
     volumes:
       - paddleocr_models:/root/.paddleocr
     deploy:

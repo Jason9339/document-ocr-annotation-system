@@ -17,6 +17,39 @@
   min-height: 0;
 }
 
+.annotator-shortcut-hint {
+  position: fixed;
+  left: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 1200;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(250, 250, 249, 0.14);
+  border-radius: 0.5rem;
+  background: rgba(28, 25, 23, 0.94);
+  color: #fafaf9;
+  font-size: 0.85rem;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+  pointer-events: none;
+}
+
+.annotator-shortcut-hint kbd {
+  min-width: 2rem;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid rgba(250, 250, 249, 0.28);
+  border-bottom-color: rgba(250, 250, 249, 0.45);
+  border-radius: 0.35rem;
+  background: #fafaf9;
+  color: #1c1917;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+}
+
 /* ── Dark top nav ────────────────────────────────────────── */
 .annotator-topnav {
   height: 56px;

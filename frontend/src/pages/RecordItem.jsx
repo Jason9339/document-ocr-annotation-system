@@ -537,7 +537,6 @@ export default function RecordItemPage({
   const toolbarLocked = annotationStage !== 'layout'
   const allowGeometryEditing = annotationStage === 'layout'
   const allowGroupingOperations = annotationStage === 'layout'
-  const sidebarWidth = annotationStage === 'text' ? 320 : annotationStage === 'full' ? 360 : 240
   const canvasClassName = `annotator-canvas${showFullView ? ' annotator-canvas--full-view' : ''}`
   const annotatorLayoutClassName = ['annotator-layout']
   if (showTextEditor) {
@@ -1428,6 +1427,30 @@ export default function RecordItemPage({
     setSelectedIds([])
   }, [])
 
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+      const target = event.target
+      if (
+        target instanceof Element &&
+        target.closest('input, textarea, select, [contenteditable="true"]')
+      ) {
+        return
+      }
+      if (selectionMode !== 'multi' && selectedIds.length === 0) {
+        return
+      }
+      clearSelection()
+      setSelectionRect(null)
+      setSelectionMode('single')
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [clearSelection, selectedIds.length, selectionMode])
+
   const selectAllAnnotations = useCallback(() => {
     setSelectedIds(annotations.map((annotation) => annotation.id))
   }, [annotations])
@@ -2119,6 +2142,12 @@ export default function RecordItemPage({
       </div>
 
       <div className="annotator-body">
+      {isMultiSelectEnabled ? (
+        <div className="annotator-shortcut-hint" role="status">
+          <kbd>Esc</kbd>
+          <span>取消多選</span>
+        </div>
+      ) : null}
       {pageInfo.loading ? (
         <div className="annotator-notice">頁面載入中…</div>
       ) : null}
