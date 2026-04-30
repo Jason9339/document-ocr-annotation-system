@@ -25,6 +25,7 @@ from records.views import (
     export_workspace_view,
     import_workspace_view,
     item_annotations_view,
+    item_completed_view,
     item_metadata_batch_view,
     item_metadata_view,
     item_original,
@@ -80,6 +81,7 @@ urlpatterns = [
     path('api/v1/items/thumbnail', item_thumbnail),
     path('api/v1/items/raw', item_original),
     path('api/v1/items/<path:item_id>/annotations', item_annotations_view),
+    path('api/v1/items/<path:item_id>/completed', item_completed_view),
     path('api/v1/items/<path:item_id>/metadata', item_metadata_view),
     path('api/v1/items/metadata/batch', item_metadata_batch_view),
 ]

@@ -754,6 +754,7 @@ def load_annotations(workspace: Workspace, item_id: str) -> Dict[str, Any]:
     payload["annotations"] = annotations
     payload["shapes"] = shapes
     payload["updated_at"] = payload.get("updated_at") or timezone.now().isoformat()
+    payload["completed"] = bool(payload.get("completed", False))
 
     metadata_values = payload.get("metadata")
     payload["metadata"] = _normalize_metadata_values(
@@ -825,12 +826,20 @@ def save_annotations(workspace: Workspace, item_id: str, data: Dict[str, Any]) -
     else:
         ocr_result_payload = None
 
+    if "completed" in data:
+        completed_value = bool(data["completed"])
+    elif existing_payload is not None:
+        completed_value = bool(existing_payload.get("completed", False))
+    else:
+        completed_value = False
+
     payload = {
         "schema_version": schema_version,
         "annotations": annotations,
         "shapes": shapes,
         "metadata": metadata_values,
         "updated_at": timezone.now().isoformat(),
+        "completed": completed_value,
     }
     if ocr_result_payload is not None:
         payload["ocr_result"] = ocr_result_payload
@@ -841,6 +850,8 @@ def save_annotations(workspace: Workspace, item_id: str, data: Dict[str, Any]) -
         "metadata": metadata_values,
         "updated_at": payload["updated_at"],
     }
+    if completed_value:
+        file_payload["completed"] = True
     if ocr_result_payload is not None:
         file_payload["ocr_result"] = ocr_result_payload
 
@@ -1519,3 +1530,44 @@ def paginate_items(items: Sequence[Item], *, page: int, page_size: int) -> Seque
     start = max(page - 1, 0) * page_size
     end = start + page_size
     return items[start:end]
+
+
+def get_item_completed(workspace: Workspace, item_id: str) -> bool:
+    record_slug, filename = _parse_item_id(item_id)
+    sidecar_path = _annotation_payload_path(workspace, record_slug, filename)
+    if not sidecar_path.exists():
+        return False
+    try:
+        with sidecar_path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        return isinstance(payload, dict) and payload.get("completed") is True
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
+def set_item_completed(workspace: Workspace, item_id: str, completed: bool) -> bool:
+    record_slug, filename = _parse_item_id(item_id)
+    sidecar_path = _annotation_payload_path(workspace, record_slug, filename)
+    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing: Dict[str, Any] = {}
+    if sidecar_path.exists():
+        try:
+            with sidecar_path.open("r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            if isinstance(raw, dict):
+                existing = raw
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if completed:
+        existing["completed"] = True
+    else:
+        existing.pop("completed", None)
+
+    existing["updated_at"] = timezone.now().isoformat()
+
+    with sidecar_path.open("w", encoding="utf-8") as fh:
+        json.dump(existing, fh, ensure_ascii=False, indent=2)
+
+    return completed

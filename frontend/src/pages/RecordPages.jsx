@@ -4,22 +4,9 @@ import {
   Search,
   ArrowLeft,
   ChevronRight as BreadcrumbSeparator,
-  Plus,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
   Trash2,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
-import MetadataEntryRow from '../components/MetadataEntryRow.jsx'
-import {
-  buildEntriesFromValues,
-  createMetadataEntry,
-  ensureEntriesNotEmpty,
-  resolveEntries,
-} from '../utils/metadata.js'
-
-const ENABLE_BATCH_METADATA = false
 
 const PAGE_SIZE = 12
 
@@ -63,16 +50,7 @@ export default function RecordPagesPage({
   const [sort, setSort] = useState('record')
   const [searchTerm, setSearchTerm] = useState('')
   const [query, setQuery] = useState('')
-  const [selectedItems, setSelectedItems] = useState(() => new Set())
-  const [batchEntries, setBatchEntries] = useState([createMetadataEntry()])
-  const [batchMode, setBatchMode] = useState('merge')
-  const [batchStatus, setBatchStatus] = useState({
-    state: 'idle',
-    message: null,
-    error: null,
-  })
-  const [batchSaving, setBatchSaving] = useState(false)
-  const [batchLoadingMetadata, setBatchLoadingMetadata] = useState(false)
+  const [togglingItems, setTogglingItems] = useState(() => new Set())
   const [clearingAnnotations, setClearingAnnotations] = useState(false)
   const [clearStatus, setClearStatus] = useState({
     state: 'idle',
@@ -80,8 +58,6 @@ export default function RecordPagesPage({
     error: null,
   })
   const [reloadToken, setReloadToken] = useState(0)
-  const selectedItemsArray = useMemo(() => Array.from(selectedItems), [selectedItems])
-  const selectedCount = selectedItemsArray.length
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -290,46 +266,28 @@ export default function RecordPagesPage({
     onNavigate(`/items/${encodeURIComponent(item.id)}`)
   }
 
-  const toggleItemSelection = (itemId) => {
-    setSelectedItems((prev) => {
-      const next = new Set(prev)
-      if (next.has(itemId)) {
-        next.delete(itemId)
-      } else {
-        next.add(itemId)
-      }
-      return next
-    })
-  }
-
-  const clearSelectedItems = () => {
-    setSelectedItems(new Set())
-    setBatchStatus({ state: 'idle', message: null, error: null })
-    setBatchEntries([createMetadataEntry()])
-  }
-
-  const handleAddBatchEntry = () => {
-    setBatchEntries((entries) => [...entries, createMetadataEntry()])
-    setBatchStatus({ state: 'dirty', message: null, error: null })
-  }
-
-  const handleRemoveBatchEntry = (id) => {
-    setBatchEntries((entries) => ensureEntriesNotEmpty(entries.filter((entry) => entry.id !== id)))
-    setBatchStatus({ state: 'dirty', message: null, error: null })
-  }
-
-  const handleBatchEntryKeyChange = (id, value) => {
-    setBatchEntries((entries) =>
-      entries.map((entry) => (entry.id === id ? { ...entry, key: value } : entry)),
+  const handleToggleCompleted = async (item) => {
+    if (togglingItems.has(item.id)) {
+      return
+    }
+    const nextCompleted = !item.completed
+    setTogglingItems((prev) => new Set(prev).add(item.id))
+    setItems((prev) =>
+      prev.map((it) => (it.id === item.id ? { ...it, completed: nextCompleted } : it)),
     )
-    setBatchStatus({ state: 'dirty', message: null, error: null })
-  }
-
-  const handleBatchEntryValueChange = (id, value) => {
-    setBatchEntries((entries) =>
-      entries.map((entry) => (entry.id === id ? { ...entry, value } : entry)),
-    )
-    setBatchStatus({ state: 'dirty', message: null, error: null })
+    try {
+      await api.setItemCompleted(item.id, nextCompleted)
+    } catch {
+      setItems((prev) =>
+        prev.map((it) => (it.id === item.id ? { ...it, completed: item.completed } : it)),
+      )
+    } finally {
+      setTogglingItems((prev) => {
+        const next = new Set(prev)
+        next.delete(item.id)
+        return next
+      })
+    }
   }
 
   const handleClearAnnotations = async () => {
@@ -360,88 +318,6 @@ export default function RecordPagesPage({
       })
     } finally {
       setClearingAnnotations(false)
-    }
-  }
-
-  const handleLoadSelectedMetadata = async () => {
-    if (selectedCount !== 1) {
-      return
-    }
-    const [itemId] = selectedItemsArray
-    setBatchLoadingMetadata(true)
-    setBatchStatus({ state: 'loading', message: null, error: null })
-    try {
-      const payload = await api.getItemMetadata(itemId)
-      const nextValues =
-        payload && payload.metadata && typeof payload.metadata === 'object'
-          ? payload.metadata
-          : {}
-      setBatchEntries(buildEntriesFromValues(nextValues, null))
-      setBatchStatus({
-        state: 'info',
-        message: '已載入目前欄位內容，可調整後套用。',
-        error: null,
-      })
-    } catch (error) {
-      setBatchStatus({
-        state: 'error',
-        message: null,
-        error: error.message ?? '載入頁面 Metadata 失敗。',
-      })
-    } finally {
-      setBatchLoadingMetadata(false)
-    }
-  }
-
-  const handleApplyBatchMetadata = async () => {
-    if (!selectedCount) {
-      return
-    }
-    const { values, errors } = resolveEntries(batchEntries, { strict: true })
-    if (errors.length) {
-      setBatchStatus({
-        state: 'error',
-        message: null,
-        error: errors.join(' / '),
-      })
-      return
-    }
-    setBatchSaving(true)
-    setBatchStatus({ state: 'saving', message: null, error: null })
-    try {
-      const payload = await api.batchUpdateItemMetadata({
-        items: selectedItemsArray,
-        metadata: values,
-        mode: batchMode,
-      })
-      const updatedCount =
-        typeof payload.updated_count === 'number'
-          ? payload.updated_count
-          : Array.isArray(payload.updated)
-            ? payload.updated.length
-            : selectedCount
-      const failedCount =
-        typeof payload.failed_count === 'number'
-          ? payload.failed_count
-          : Array.isArray(payload.failed)
-            ? payload.failed.length
-            : 0
-      const hasFailure = failedCount > 0
-      const baseMessage = `已套用至 ${updatedCount} 頁。`
-      const failureMessage = hasFailure ? ` 有 ${failedCount} 頁更新失敗。` : ''
-      setBatchStatus({
-        state: hasFailure ? 'warning' : 'success',
-        message: `${baseMessage}${failureMessage}`,
-        error: hasFailure ? '部分頁面未更新，請稍後重試或檢查檔案。' : null,
-      })
-    } catch (error) {
-      setBatchStatus({
-        state: 'error',
-        message: null,
-        error: error.message ?? '批次更新失敗。',
-      })
-    } finally {
-      setBatchSaving(false)
     }
   }
 
@@ -557,127 +433,6 @@ export default function RecordPagesPage({
         </div>
       </section>
 
-      {ENABLE_BATCH_METADATA && selectedCount > 0 ? (
-        <section className="batch-metadata-panel">
-          <div className="batch-metadata-panel__header">
-            <div>
-              <h3>批次套用 Metadata</h3>
-              <p>已選取 {selectedCount} 頁。</p>
-            </div>
-            <div className="batch-metadata-panel__controls">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={handleAddBatchEntry}
-                disabled={batchSaving}
-              >
-                <Plus size={16} />
-                新增欄位
-              </button>
-              {selectedCount === 1 ? (
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={handleLoadSelectedMetadata}
-                  disabled={batchSaving || batchLoadingMetadata}
-                >
-                  {batchLoadingMetadata ? <Loader2 size={16} className="spin" /> : <Search size={16} />}
-                  載入目前欄位
-                </button>
-              ) : null}
-              <button type="button" className="ghost-button" onClick={clearSelectedItems} disabled={batchSaving}>
-                清除選取
-              </button>
-            </div>
-          </div>
-          <div className="batch-metadata-panel__mode">
-            <label>
-              <input
-                type="radio"
-                name="batch-mode"
-                value="merge"
-                checked={batchMode === 'merge'}
-                onChange={(event) => setBatchMode(event.target.value)}
-                disabled={batchSaving}
-              />
-              合併（保留既有值）
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="batch-mode"
-                value="replace"
-                checked={batchMode === 'replace'}
-                onChange={(event) => setBatchMode(event.target.value)}
-                disabled={batchSaving}
-              />
-              取代（完全覆寫）
-            </label>
-          </div>
-          <div className="metadata-editor metadata-editor--compact">
-            {batchEntries.map((entry) => (
-              <MetadataEntryRow
-                key={entry.id}
-                entry={entry}
-                onChangeKey={handleBatchEntryKeyChange}
-                onChangeValue={handleBatchEntryValueChange}
-                onRemove={handleRemoveBatchEntry}
-                disabled={batchSaving}
-              />
-            ))}
-          </div>
-        {batchStatus.state === 'loading' ? (
-          <div className="metadata-status metadata-status--info">
-            <Loader2 size={16} className="spin" />
-            <span>載入中…</span>
-          </div>
-        ) : null}
-        {batchStatus.state === 'saving' ? (
-          <div className="metadata-status metadata-status--info">
-            <Loader2 size={16} className="spin" />
-            <span>套用中，請稍候…</span>
-          </div>
-        ) : null}
-        {batchStatus.error ? (
-          <div className="metadata-status metadata-status--error">
-            <AlertCircle size={16} />
-            <span>{batchStatus.error}</span>
-          </div>
-        ) : null}
-        {batchStatus.message ? (
-          <div
-            className={`metadata-status ${
-              batchStatus.state === 'success'
-                ? 'metadata-status--success'
-              : batchStatus.state === 'warning'
-                ? 'metadata-status--warning'
-                : 'metadata-status--info'
-            }`}
-          >
-            {batchStatus.state === 'success' ? (
-              <CheckCircle2 size={16} />
-            ) : batchStatus.state === 'warning' ? (
-              <AlertCircle size={16} />
-            ) : (
-              <AlertCircle size={16} />
-            )}
-            <span>{batchStatus.message}</span>
-          </div>
-        ) : null}
-        <div className="metadata-editor__actions">
-          <button
-            type="button"
-            className="primary-button"
-            onClick={handleApplyBatchMetadata}
-            disabled={batchSaving}
-          >
-            {batchSaving ? <Loader2 size={16} className="spin" /> : null}
-            {batchSaving ? '套用中…' : `套用至 ${selectedCount} 頁`}
-          </button>
-        </div>
-        </section>
-      ) : null}
-
       <div className="records-panel record-pages__panel">
         <div className="record-pages-grid">
           {loading && !items.length ? (
@@ -689,19 +444,21 @@ export default function RecordPagesPage({
           ) : null}
 
           {items.map((item) => {
-            const isSelected = selectedItems.has(item.id)
+            const isCompleted = Boolean(item.completed)
+            const isToggling = togglingItems.has(item.id)
             return (
               <article
                 key={item.id}
-                className={`record-card record-card--page${isSelected ? ' record-card--selected' : ''}`}
+                className={`record-card record-card--page${isCompleted ? ' record-card--completed' : ''}`}
               >
                 <div className="record-card__select">
-                  <label>
+                  <label title={isCompleted ? '標記為未完成' : '標記為完成'}>
                     <input
                       type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleItemSelection(item.id)}
-                      aria-label={`選取 ${item.filename}`}
+                      checked={isCompleted}
+                      disabled={isToggling}
+                      onChange={() => handleToggleCompleted(item)}
+                      aria-label={isCompleted ? `取消完成 ${item.filename}` : `標記完成 ${item.filename}`}
                     />
                   </label>
                 </div>

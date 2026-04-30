@@ -24,6 +24,7 @@ from .services import (
     filter_items,
     get_active_workspace,
     get_item,
+    get_item_completed,
     get_item_metadata,
     get_workspace,
     get_record,
@@ -38,6 +39,7 @@ from .services import (
     paginate_items,
     preview_records_from_file_batch,
     preview_records_from_upload,
+    set_item_completed,
     update_item_metadata,
     update_record_metadata,
     update_workspace_info,
@@ -395,6 +397,7 @@ def _item_payload(workspace, item):
     rel_path = item.rel_path.as_posix()
     thumbnail_url = f"/api/v1/items/thumbnail?path={quote(rel_path, safe='')}"
     original_url = f"/api/v1/items/raw?path={quote(rel_path, safe='')}"
+    completed = get_item_completed(workspace, item.id)
     return {
         "id": item.id,
         "record": item.record,
@@ -402,6 +405,7 @@ def _item_payload(workspace, item):
         "relative_path": rel_path,
         "thumbnail_url": thumbnail_url,
         "original_url": original_url,
+        "completed": completed,
     }
 
 
@@ -571,6 +575,29 @@ def item_annotations_view(request, item_id: str):
 
     saved = save_annotations(workspace, item_id, data)
     return JsonResponse({"ok": True, **saved})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def item_completed_view(request, item_id: str):
+    try:
+        workspace = _active_workspace_or_400()
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    try:
+        get_item(workspace, item_id)
+    except WorkspaceError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=404)
+
+    try:
+        data = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON payload.")
+
+    completed = bool(data.get("completed", False))
+    set_item_completed(workspace, item_id, completed)
+    return JsonResponse({"ok": True, "completed": completed})
 
 
 @csrf_exempt

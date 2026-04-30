@@ -173,6 +173,16 @@
   box-shadow: 0 20px 35px rgba(180, 83, 9, 0.18);
 }
 
+.record-card--completed {
+  border-color: #16a34a;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.12);
+}
+
+.record-card--completed .record-card__select input:checked {
+  background: #16a34a;
+  border-color: #16a34a;
+}
+
 .record-card__select {
   position: absolute;
   top: 0.75rem;

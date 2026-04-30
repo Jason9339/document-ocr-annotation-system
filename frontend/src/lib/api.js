@@ -260,6 +260,14 @@ export async function reOCRItem(itemId) {
   })
 }
 
+export async function setItemCompleted(itemId, completed) {
+  return fetchJSON(`/api/v1/items/${encodeItemId(itemId)}/completed`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ completed }),
+  })
+}
+
 export async function getRecordMetadata(slug) {
   return fetchJSON(`/api/v1/records/${encodeURIComponent(slug)}/metadata`)
 }
@@ -381,6 +389,7 @@ export const api = {
   getItemAnnotations,
   updateItemAnnotations,
   reOCRItem,
+  setItemCompleted,
   getRecordMetadata,
   updateRecordMetadata,
   getItemMetadata,
