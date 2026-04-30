@@ -6,35 +6,50 @@ A small OCR annotation system (Django backend + React frontend) with example wor
 
 ## Quick start (development)
 
-Prerequisites:
-- Docker & Docker Compose
-- git
-
-Start the app (builds images first time):
+Prerequisites: **Docker & Docker Compose**, **git**
 
 ```bash
-# build and run all services in background
-docker compose up -d --build
-
-# view backend logs
-docker compose logs -f api
-
-# stop and remove containers
-docker compose down
+git clone https://github.com/Jason9339/document-ocr-annotation-system.git
+cd document-ocr-annotation-system
+./start.sh
 ```
 
-If you change Python dependencies, rebuild the backend and worker images:
+`./start.sh` 會詢問環境，根據機器選擇：
+
+| 選項 | 適用 | 說明 |
+|---|---|---|
+| `1` | 一般 x86 工作站 | 使用官方 `paddlepaddle-gpu`（CUDA 12.9） |
+| `2` | **NVIDIA DGX Spark**（aarch64） | 首次執行自動下載預編 wheel 並 build image |
+
+開啟瀏覽器：[http://localhost:5173](http://localhost:5173)
+
+---
+
+### 開發常用指令
 
 ```bash
-docker compose build --no-cache api worker
-docker compose up -d
+# 背景執行
+./start.sh -- -d
+
+# 查看 log
+sudo docker compose logs -f api        # DGX Spark
+docker compose logs -f api             # x86
+
+# 停止
+sudo docker compose -f docker-compose.yml -f docker-compose.dgxspark.yml down   # DGX Spark
+docker compose down                                                               # x86
 ```
 
-Common commands:
-- Restart a service: docker compose restart api
-- Run Django migrations: docker compose exec api python manage.py migrate
-- Run backend tests: docker compose exec api python manage.py test
-- Install frontend package: docker compose exec web npm install <pkg>
+### 更新 Python 依賴後重建 image
+
+```bash
+# x86
+docker compose build --no-cache api worker && docker compose up -d
+
+# DGX Spark（重建後再啟動）
+sudo docker build -f backend/Dockerfile.dgxspark -t paddleocr-backend:dgxspark .
+./start.sh
+```
 
 ## System Walkthrough
 
