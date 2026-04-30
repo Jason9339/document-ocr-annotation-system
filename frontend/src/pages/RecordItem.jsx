@@ -1427,6 +1427,23 @@ export default function RecordItemPage({
     setSelectedIds([])
   }, [])
 
+  const cancelDrawMode = useCallback(() => {
+    const drawingState = drawingStateRef.current
+    if (drawingState?.id) {
+      setAnnotations((prev) =>
+        prev
+          .filter((annotation) => annotation.id !== drawingState.id)
+          .map((annotation, index) => ({
+            ...annotation,
+            order: index,
+          })),
+      )
+    }
+    drawingStateRef.current = null
+    setSelectedIds([])
+    setDrawMode(false)
+  }, [])
+
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key !== 'Escape') {
@@ -1439,6 +1456,10 @@ export default function RecordItemPage({
       ) {
         return
       }
+      if (drawMode) {
+        cancelDrawMode()
+        return
+      }
       if (selectionMode !== 'multi' && selectedIds.length === 0) {
         return
       }
@@ -1449,7 +1470,7 @@ export default function RecordItemPage({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [clearSelection, selectedIds.length, selectionMode])
+  }, [cancelDrawMode, clearSelection, drawMode, selectedIds.length, selectionMode])
 
   const selectAllAnnotations = useCallback(() => {
     setSelectedIds(annotations.map((annotation) => annotation.id))
@@ -2142,10 +2163,10 @@ export default function RecordItemPage({
       </div>
 
       <div className="annotator-body">
-      {isMultiSelectEnabled ? (
+      {drawMode || isMultiSelectEnabled ? (
         <div className="annotator-shortcut-hint" role="status">
           <kbd>Esc</kbd>
-          <span>取消多選</span>
+          <span>{drawMode ? '退出繪製' : '取消多選'}</span>
         </div>
       ) : null}
       {pageInfo.loading ? (
