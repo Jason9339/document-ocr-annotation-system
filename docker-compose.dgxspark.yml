@@ -25,19 +25,11 @@ services:
       dockerfile: backend/Dockerfile.dgxspark
     image: paddleocr-backend:dgxspark
     command: rq worker --url redis://redis:6379/0 ocr
-    runtime: nvidia
     environment:
       - USE_GPU=1
       - FLAGS_fraction_of_gpu_memory_to_use=0.1
     volumes:
       - paddleocr_models:/root/.paddleocr
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
 volumes:
   paddleocr_models:
